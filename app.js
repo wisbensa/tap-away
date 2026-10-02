@@ -1,10 +1,10 @@
 (() => {
   "use strict";
   // Phase 0 tuning values; these are provisional, not world/game rules.
-  const CONFIG = { extent: 5, tileWidth: 76, tileHeight: 54, heightScale: 15,
+  const CONFIG = { extent: 5, tileWidth: 76, tileHeight: 38, heightScale: 15,
     minZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
     sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
-    pressDepth: 12, minPressPixels: 12, reactionRadius: 1.5, outlineColor: "48, 65, 40",
+    pressDepth: 4, minPressPixels: 4, pressDarkening: 30, outlineColor: "48, 65, 40",
     outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, maxPulses: 32, soundVolume: .12 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
@@ -20,10 +20,10 @@
       tiles.push({ x, y, seed, kind: seed % 11 < 3 ? "tree" : seed % 11 === 4 ? "rock" : "grass" });
     }
   }
-  tiles.sort((a, b) => a.x + a.y - b.x - b.y || a.y - b.y);
+  tiles.sort((a, b) => a.y - b.y || a.x - b.x);
   function project(x, y, z = 0) {
-    return { x: width / 2 + camera.x + (x - y) * CONFIG.tileWidth / 2 * camera.zoom,
-      y: height * .48 + camera.y + ((x + y) * CONFIG.tileHeight / 2 - z) * camera.zoom };
+    return { x: width / 2 + camera.x + x * CONFIG.tileWidth * camera.zoom,
+      y: height * .48 + camera.y + (y * CONFIG.tileHeight - z) * camera.zoom };
   }
   function reaction(p, now) {
     if (p === held) return CONFIG.contactStrength;
@@ -48,13 +48,15 @@
   function displacement(x, y, now) {
     let result = 0;
     for (const p of held ? [...pulses, held] : pulses) {
-      const d = Math.hypot(x - p.x, y - p.y);
-      const falloff = Math.exp(-d * d / (CONFIG.reactionRadius ** 2) * 2.5);
-      result += Math.max(CONFIG.pressDepth, CONFIG.minPressPixels / camera.zoom) * falloff * reaction(p, now);
+      if (Math.floor(x) !== p.tile.x || Math.floor(y) !== p.tile.y) continue;
+      result += Math.max(CONFIG.pressDepth, CONFIG.minPressPixels / camera.zoom) * reaction(p, now);
     }
-    return clamp(result, -4 / camera.zoom, Math.max(13, CONFIG.minPressPixels / camera.zoom));
+    return clamp(result, -4 / camera.zoom, Math.max(CONFIG.pressDepth + 1, CONFIG.minPressPixels / camera.zoom));
   }
-  function surface(x, y, now) { return project(x, y, heightAt(x, y) * CONFIG.heightScale - displacement(x, y, now)); }
+  function surface(x, y, now, tile) {
+    const depth = tile ? displacement(tile.x + .5, tile.y + .5, now) : displacement(x, y, now);
+    return project(x, y, heightAt(x, y) * CONFIG.heightScale - depth);
+  }
   function polygon(points, fill, stroke) {
     ctx.beginPath(); points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath();
     ctx.fillStyle = fill; ctx.fill();
@@ -68,7 +70,10 @@
     }
     return yes;
   }
-  function corners(tile, now) { return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => surface(tile.x + dx, tile.y + dy, now)); }
+  function corners(tile, now) { return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => surface(tile.x + dx, tile.y + dy, now, tile)); }
+  function tileColor(tile, now) {
+    return `hsl(${83 + tile.seed % 9} 22% ${69 + tile.seed % 5 - CONFIG.pressDarkening * outlineStrength(tile, now)}%)`;
+  }
   function objectShapes(tile) {
     if (tile.kind === "tree") return [
       [{x:-1.5,y:0},{x:1.5,y:0},{x:1.5,y:-21},{x:-1.5,y:-21}],
@@ -100,14 +105,13 @@
       const pts = corners(tile, now), { x, y, seed } = tile;
       const base = surface(x + .5, y + .5, now);
       const remember = points => hitAreas.push({ tile, points, base, zoom:camera.zoom });
-      if (x === CONFIG.extent - 1 || y === CONFIG.extent - 1) {
-        const edge = x === CONFIG.extent - 1 ? [pts[1], pts[2]] : [pts[2], pts[3]];
+      if (y === CONFIG.extent - 1) {
+        const edge = [pts[2], pts[3]];
         const side = [edge[0], edge[1], {x:edge[1].x,y:edge[1].y+17*camera.zoom}, {x:edge[0].x,y:edge[0].y+17*camera.zoom}];
-        polygon(side, x === CONFIG.extent - 1 ? "#b2a48b" : "#c8baa0");
+        polygon(side, "#c8baa0");
         remember(side);
       }
-      const press = displacement(x + .5, y + .5, now);
-      polygon(pts, `hsl(${83 + seed % 9} 22% ${69 + seed % 5 - press * .7}%)`, "#657d4b22");
+      polygon(pts, tileColor(tile, now), "#657d4b22");
       remember(pts);
       const shapes = objectShapes(tile);
       ctx.save(); ctx.translate(base.x, base.y); ctx.scale(camera.zoom, camera.zoom);
@@ -161,9 +165,8 @@
     const hit = pick(p);
     if (!hit) return;
     const {tile, base, zoom} = hit;
-    const dx = (p.x-base.x) / (CONFIG.tileWidth/2*zoom);
-    const dy = (p.y-base.y) / (CONFIG.tileHeight/2*zoom);
-    const localX = clamp((dx+dy)/2,-.4,.4), localY = clamp((dy-dx)/2,-.4,.4);
+    const localX = clamp((p.x-base.x) / (CONFIG.tileWidth*zoom),-.4,.4);
+    const localY = clamp((p.y-base.y) / (CONFIG.tileHeight*zoom),-.4,.4);
     held = {x:tile.x+.5+localX,y:tile.y+.5+localY,tile};
     requestDraw();
   }
