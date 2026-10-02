@@ -2,13 +2,13 @@
   "use strict";
   // Phase 0 tuning values; these are provisional, not world/game rules.
   const CONFIG = { extent: 5, tileWidth: 76, tileHeight: 38, heightScale: 15,
-    minZoom: .55, maxZoom: 2.4, dragThreshold: 7, reactionMs: 180,
-    pressDepth: 9, reactionRadius: 1.15, maxPulses: 32, soundVolume: .12 };
+    minZoom: .55, maxZoom: 2.4, dragThreshold: 7, reactionMs: 520,
+    pressDepth: 12, reactionRadius: 1.5, maxPulses: 32, soundVolume: .12 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
   const pointers = new Map(), pulses = [], tiles = [];
-  let width = 0, height = 0, frame = 0, soundOn = false, audio = null, gesture = null;
+  let width = 0, height = 0, frame = 0, soundOn = false, audio = null, gesture = null, held = null;
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
   for (let y = -CONFIG.extent; y < CONFIG.extent; y++) {
@@ -24,8 +24,8 @@
   }
   function displacement(x, y, now) {
     let result = 0;
-    for (const p of pulses) {
-      const t = clamp((now - p.at) / CONFIG.reactionMs, 0, 1);
+    for (const p of held ? [...pulses, held] : pulses) {
+      const t = p === held ? 0 : clamp((now - p.at) / CONFIG.reactionMs, 0, 1);
       const d = Math.hypot(x - p.x, y - p.y);
       const falloff = Math.exp(-d * d / (CONFIG.reactionRadius ** 2) * 2.5);
       result += CONFIG.pressDepth * falloff * Math.cos(t * Math.PI * 1.6) * (1 - t) ** 2;
@@ -98,7 +98,7 @@
     camera.zoom = next; requestDraw();
   }
   function pair() { const [a,b] = [...pointers.values()]; return { midpoint: {x:(a.x+b.x)/2,y:(a.y+b.y)/2}, distance:Math.hypot(a.x-b.x,a.y-b.y) }; }
-  function tap(p) {
+  function press(p) {
     const now = performance.now();
     // Reverse painter order gives raised objects their owning tile as well.
     const tile = [...tiles].reverse().find(t => {
@@ -111,9 +111,16 @@
     const dx = (p.x-base.x) / (CONFIG.tileWidth/2*camera.zoom);
     const dy = (p.y-base.y) / (CONFIG.tileHeight/2*camera.zoom);
     const localX = clamp((dx+dy)/2,-.4,.4), localY = clamp((dy-dx)/2,-.4,.4);
-    pulses.push({x:tile.x+.5+localX,y:tile.y+.5+localY,at:now});
+    held = {x:tile.x+.5+localX,y:tile.y+.5+localY};
+    requestDraw();
+  }
+  function releasePress(commit) {
+    if (!held) return;
+    if (commit) pulses.push({...held,at:performance.now()});
+    held = null;
     if (pulses.length > CONFIG.maxPulses) pulses.shift();
-    playSound(); requestDraw();
+    if (commit) playSound();
+    requestDraw();
   }
   function playSound() {
     if (!soundOn || !audio || audio.state !== "running") return;
@@ -133,8 +140,8 @@
   canvas.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;
     const p = point(event); pointers.set(event.pointerId,p); canvas.setPointerCapture(event.pointerId);
-    if (pointers.size === 1) gesture = { start:p, last:p, moved:false, multi:false };
-    if (pointers.size >= 2) { gesture.multi = true; gesture.pair = pair(); }
+    if (pointers.size === 1) { gesture = { start:p, last:p, moved:false, multi:false }; press(p); }
+    if (pointers.size >= 2) { releasePress(false); gesture.multi = true; gesture.pair = pair(); }
   });
   canvas.addEventListener("pointermove", event => {
     if (!pointers.has(event.pointerId)) return;
@@ -144,7 +151,7 @@
       if (prev && prev.distance > 0) { zoomAt(prev.midpoint,next.distance/prev.distance); camera.x += next.midpoint.x-prev.midpoint.x; camera.y += next.midpoint.y-prev.midpoint.y; }
       gesture.pair = next; requestDraw();
     } else {
-      if (Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) > CONFIG.dragThreshold) gesture.moved = true;
+      if (Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) > CONFIG.dragThreshold) { gesture.moved = true; releasePress(false); }
       if (gesture.moved || gesture.multi) { camera.x += p.x-gesture.last.x; camera.y += p.y-gesture.last.y; canvas.classList.add("dragging"); requestDraw(); }
       gesture.last = p;
     }
@@ -152,7 +159,7 @@
   function endPointer(event) {
     if (!pointers.has(event.pointerId)) return;
     const p = point(event);
-    if (event.type === "pointerup" && pointers.size === 1 && !gesture.multi && !gesture.moved && Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) <= CONFIG.dragThreshold) tap(p);
+    releasePress(event.type === "pointerup" && pointers.size === 1 && !gesture.multi && !gesture.moved && Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) <= CONFIG.dragThreshold);
     pointers.delete(event.pointerId);
     if (pointers.size === 1) gesture.last = [...pointers.values()][0];
     if (!pointers.size) { gesture = null; canvas.classList.remove("dragging"); }
@@ -160,6 +167,6 @@
   for (const name of ["pointerup","pointercancel","lostpointercapture"]) canvas.addEventListener(name,endPointer);
   canvas.addEventListener("wheel", event => { event.preventDefault(); zoomAt(point(event),Math.exp(-clamp(event.deltaY,-120,120)*.002)); },{passive:false});
   window.addEventListener("resize",resize);
-  document.addEventListener("visibilitychange",() => { if (document.hidden) { pointers.clear(); gesture = null; pulses.length = 0; canvas.classList.remove("dragging"); } requestDraw(); });
+  document.addEventListener("visibilitychange",() => { if (document.hidden) { pointers.clear(); gesture = null; held = null; pulses.length = 0; canvas.classList.remove("dragging"); } requestDraw(); });
   resize();
 })();
