@@ -2,7 +2,7 @@
   "use strict";
   // Touch tuning inherited from the approved Phase 0 prototype.
   const CONFIG = { extent: 31, tileWidth: 76, tileHeight: 68, heightScale: 15,
-    minZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
+    minZoom: .12, minTapZoom: .45, initialMinZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
     sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
     pressDepth: 2, minPressPixels: 2, pressDarkening: 30, outlineColor: "48, 65, 40",
     outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, maxPulses: 32, soundVolume: .12, hiddenLightness: 34, previewLightness: 46 };
@@ -181,12 +181,18 @@
     if(!world.destination)return;
     const p=surface(world.destination.x+.5,world.destination.y+.5,now);
     const target={x:p.x,y:p.y-64*camera.zoom};
-    const margin=32,top=140,bottom=height-120;
+    const margin=36;
+    const headerBottom=document.querySelector('header').getBoundingClientRect().bottom;
+    const footerTop=document.querySelector('footer').getBoundingClientRect().top;
+    const top=Math.min(headerBottom+margin,height/2),bottom=Math.max(top,Math.min(height,footerTop)-margin);
     const x=clamp(target.x,margin,width-margin),y=clamp(target.y,top,bottom);
-    ctx.save();ctx.fillStyle='#f0db93';ctx.strokeStyle='#655a3d';ctx.lineWidth=3;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.strokeText('★',x,y);ctx.fillText('★',x,y);
-    if(x!==target.x||y!==target.y) {
+    const offscreen=x!==target.x||y!==target.y;
+    ctx.save();
+    if(offscreen){ctx.beginPath();ctx.arc(x,y,28,0,Math.PI*2);ctx.fillStyle='#faf8ee';ctx.fill();ctx.strokeStyle='#655a3d';ctx.lineWidth=2;ctx.stroke();}
+    ctx.fillStyle='#f0db93';ctx.strokeStyle='#655a3d';ctx.lineWidth=3;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.strokeText('★',x,y);ctx.fillText('★',x,y);
+    if(offscreen) {
       const angle=Math.atan2(target.y-y,target.x-x);ctx.translate(x,y);ctx.rotate(angle);
-      polygon([{x:16,y:-4},{x:23,y:0},{x:16,y:4}],'#f0db93');
+      polygon([{x:17,y:-7},{x:27,y:0},{x:17,y:7}],'#655a3d');
     }
     ctx.restore();
   }
@@ -196,7 +202,7 @@
     width = canvas.clientWidth; height = canvas.clientHeight;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr); ctx.setTransform(dpr,0,0,dpr,0,0);
-    if (!oldWidth) camera.zoom = clamp(Math.min(width / 880, height / 650), CONFIG.minZoom, 1.15);
+    if (!oldWidth) camera.zoom = clamp(Math.min(width / 880, height / 650), CONFIG.initialMinZoom, 1.15);
     requestDraw();
   }
   function point(event) { const r = canvas.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; }
@@ -204,12 +210,15 @@
     const before = camera.zoom, next = clamp(before * factor, CONFIG.minZoom, CONFIG.maxZoom);
     camera.x = p.x - width / 2 - (p.x - width / 2 - camera.x) * next / before;
     camera.y = p.y - height * .48 - (p.y - height * .48 - camera.y) * next / before;
-    camera.zoom = next; requestDraw();
+    camera.zoom = next;
+    if (next < CONFIG.minTapZoom) releasePress(false);
+    requestDraw();
   }
   function pair() { const [a,b] = [...pointers.values()]; return { midpoint: {x:(a.x+b.x)/2,y:(a.y+b.y)/2}, distance:Math.hypot(a.x-b.x,a.y-b.y) }; }
   function press(p) {
+    if (!started || camera.zoom < CONFIG.minTapZoom) return;
     const hit = pick(p);
-    if (!hit || !started) return;
+    if (!hit || hit.zoom < CONFIG.minTapZoom) return;
     const {tile, base, zoom} = hit;
     if (!TapWorld.eligible(tile, TapWorld.index(world))) return;
     const localX = clamp((p.x-base.x) / (CONFIG.tileWidth*zoom),-.4,.4);
@@ -219,7 +228,7 @@
   }
   function releasePress(commit) {
     if (!held) return;
-    if(commit && !TapWorld.eligible(held.tile,TapWorld.index(world))) commit=false;
+    if(commit && (camera.zoom < CONFIG.minTapZoom || !TapWorld.eligible(held.tile,TapWorld.index(world)))) commit=false;
     if(commit){const result=TapWorld.develop(world,held.tile);if(result==='empty')toast("探索ポイントが回復するまで、ひと休み。");if(result==='tower')toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');if(result!=='blocked'&&result!=='empty')queueSave();updateHud();pulses.push({...held,at:performance.now()});}
     held = null;
     if (pulses.length > CONFIG.maxPulses) pulses.shift();
