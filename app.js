@@ -2,8 +2,10 @@
   "use strict";
   // Phase 0 tuning values; these are provisional, not world/game rules.
   const CONFIG = { extent: 5, tileWidth: 76, tileHeight: 38, heightScale: 15,
-    minZoom: .55, maxZoom: 2.4, dragThreshold: 7, reactionMs: 520,
-    pressDepth: 12, reactionRadius: 1.5, maxPulses: 32, soundVolume: .12 };
+    minZoom: .55, maxZoom: 2.4, dragThreshold: 7, reactionMs: 550,
+    sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
+    pressDepth: 12, reactionRadius: 1.5, outlineColor: "48, 65, 40",
+    outlineWidth: 2, maxPulses: 32, soundVolume: .12 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
@@ -22,13 +24,25 @@
     return { x: width / 2 + camera.x + (x - y) * CONFIG.tileWidth / 2 * camera.zoom,
       y: height * .48 + camera.y + ((x + y) * CONFIG.tileHeight / 2 - z) * camera.zoom };
   }
+  function reaction(p, now) {
+    if (p === held) return CONFIG.contactStrength;
+    const age = Math.max(0, now - p.at);
+    if (age < CONFIG.sinkMs) return CONFIG.contactStrength + (1 - CONFIG.contactStrength) * Math.sin(age / CONFIG.sinkMs * Math.PI / 2);
+    if (age < CONFIG.sinkMs + CONFIG.sinkHoldMs) return 1;
+    const t = clamp((age - CONFIG.sinkMs - CONFIG.sinkHoldMs) / (CONFIG.reactionMs - CONFIG.sinkMs - CONFIG.sinkHoldMs), 0, 1);
+    return Math.cos(t * Math.PI * 1.6) * (1 - t) ** 2;
+  }
+  function outlineStrength(tile, now) {
+    let strength = held && held.tile === tile ? CONFIG.contactStrength : 0;
+    for (const p of pulses) if (p.tile === tile) strength = Math.max(strength, reaction(p, now));
+    return strength;
+  }
   function displacement(x, y, now) {
     let result = 0;
     for (const p of held ? [...pulses, held] : pulses) {
-      const t = p === held ? 0 : clamp((now - p.at) / CONFIG.reactionMs, 0, 1);
       const d = Math.hypot(x - p.x, y - p.y);
       const falloff = Math.exp(-d * d / (CONFIG.reactionRadius ** 2) * 2.5);
-      result += CONFIG.pressDepth * falloff * Math.cos(t * Math.PI * 1.6) * (1 - t) ** 2;
+      result += CONFIG.pressDepth * falloff * reaction(p, now);
     }
     return clamp(result, -4, 13);
   }
@@ -79,6 +93,18 @@
       }
       ctx.restore();
     }
+    // Draw last so neighboring tile fills cannot hide the selected edges.
+    for (const tile of tiles) {
+      const strength = outlineStrength(tile, now);
+      if (strength <= 0) continue;
+      ctx.beginPath();
+      corners(tile, now).forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+      ctx.closePath();
+      ctx.strokeStyle = `rgba(${CONFIG.outlineColor}, ${strength * .85})`;
+      ctx.lineWidth = Math.max(1.25, CONFIG.outlineWidth * camera.zoom);
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
     if (pulses.length) requestDraw();
   }
   function requestDraw() { if (!frame) frame = requestAnimationFrame(draw); }
@@ -111,7 +137,7 @@
     const dx = (p.x-base.x) / (CONFIG.tileWidth/2*camera.zoom);
     const dy = (p.y-base.y) / (CONFIG.tileHeight/2*camera.zoom);
     const localX = clamp((dx+dy)/2,-.4,.4), localY = clamp((dy-dx)/2,-.4,.4);
-    held = {x:tile.x+.5+localX,y:tile.y+.5+localY};
+    held = {x:tile.x+.5+localX,y:tile.y+.5+localY,tile};
     requestDraw();
   }
   function releasePress(commit) {
