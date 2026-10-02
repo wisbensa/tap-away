@@ -5,7 +5,7 @@
     minZoom: .12, minTapZoom: .25, initialMinZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
     sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
     pressDepth: 2, minPressPixels: 2, pressDarkening: 30, outlineColor: "48, 65, 40",
-    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, maxPulses: 32, soundVolume: .12, hiddenLightness: 34, previewLightness: 46 };
+    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, colorHoldMs: 100, colorReturnMs: 240, maxPulses: 32, soundVolume: .12, hiddenLightness: 34, previewLightness: 46 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
@@ -16,18 +16,90 @@
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
   const SAVE_KEY='tap-away.world.v1';
   let world,saveBlocked=false,saveTimer=0,toastTimer=0,started=false;
-  function toast(message){notice.textContent=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>notice.textContent='',7000);}
-  try{const raw=localStorage.getItem(SAVE_KEY);world=raw===null?TapWorld.create():TapWorld.migrate(JSON.parse(raw));TapWorld.settle(world);}catch{saveBlocked=true;world=TapWorld.create();toast("セーブを読み込めません。元データを保持しています。この回の進行は保存されません。");}
+  const SAVE_LOAD_ERROR = "セーブを読み込めません。元データを保持しています。この回の進行は保存されません。";
+  function toast(message) {
+    notice.textContent = message;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => notice.textContent = '', 7000);
+  }
+  function loadWorld() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      const loaded = raw === null ? TapWorld.create() : TapWorld.migrate(JSON.parse(raw));
+      TapWorld.settle(loaded);
+      return loaded;
+    } catch {
+      saveBlocked = true;
+      toast(SAVE_LOAD_ERROR);
+      return TapWorld.create();
+    }
+  }
+  world = loadWorld();
   tiles.push(...world.tiles);
-  function save(){clearTimeout(saveTimer);if(saveBlocked)return;TapWorld.settle(world);world.savedAt=Date.now();try{localStorage.setItem(SAVE_KEY,JSON.stringify(world));}catch{toast("保存できませんでした。端末の空き容量や保存設定を確認してください。");}}
-  function queueSave(){clearTimeout(saveTimer);saveTimer=setTimeout(save,500);}
-  function updateHud(){document.querySelector('#points').textContent='探索 '+Math.floor(world.points)+' / 1000';}
+  function save() {
+    clearTimeout(saveTimer);
+    if (saveBlocked) return;
+    TapWorld.settle(world);
+    world.savedAt = Date.now();
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(world));
+    } catch {
+      toast("保存できませんでした。端末の空き容量や保存設定を確認してください。");
+    }
+  }
+  function queueSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 500);
+  }
+  function updateHud() {
+    document.querySelector('#points').textContent = '探索 ' + Math.floor(world.points) + ' / ' + TapWorld.RULES.maxPoints;
+  }
   document.querySelector('#start').textContent=world.introduced?"つづきから":"はじめる";
-  document.querySelector('#start').addEventListener('click',()=>{started=true;document.querySelector('#start-screen').hidden=true;if(saveBlocked)toast('セーブを読み込めません。元データを保持しています。この回の進行は保存されません。');if(!world.introduced&&!saveBlocked){world.introduced=true;toast("隣の土地をポチポチ開拓。★の古い塔まで行くと、遠くを見渡せます。");queueSave();}updateHud();requestDraw();});
+  function startGame() {
+    started = true;
+    document.querySelector('#start-screen').hidden = true;
+    if (saveBlocked) toast(SAVE_LOAD_ERROR);
+    if (!world.introduced && !saveBlocked) {
+      world.introduced = true;
+      toast("隣の土地をポチポチ開拓。★の古い塔まで行くと、遠くを見渡せます。");
+      queueSave();
+    }
+    updateHud();
+    requestDraw();
+  }
+  document.querySelector('#start').addEventListener('click', startGame);
   const devButton=document.querySelector('#dev-reset');
   devButton.addEventListener('click',()=>{if(!confirm("Tap Awayの進行を初期状態に戻しますか？"))return;try{clearTimeout(saveTimer);localStorage.removeItem(SAVE_KEY);saveBlocked=true;location.reload();}catch{toast("セーブを削除できませんでした。");}});
   const notes=document.querySelector('#release-dialog');
-  document.querySelector('#notes').addEventListener('click',async()=>{notes.showModal();const body=document.querySelector('#release-body');body.textContent="読み込み中…";try{const response=await fetch('release-notes.json',{cache:'no-cache'});if(!response.ok)throw Error();const data=await response.json();body.replaceChildren();for(const release of data.releases.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.version.localeCompare(a.version,undefined,{numeric:true}))){const title=document.createElement('h3');title.textContent='v'+release.version+' · '+release.date+' — '+release.title;body.append(title);for(const item of release.items){const paragraph=document.createElement('p');paragraph.textContent=item;body.append(paragraph);}}}catch{body.textContent="更新情報を取得できませんでした。ゲームはそのまま遊べます。";}});
+  function renderReleaseNotes(body, releases) {
+    body.replaceChildren();
+    const sorted = releases.slice().sort((a, b) =>
+      b.date.localeCompare(a.date) || b.version.localeCompare(a.version, undefined, {numeric: true}));
+    for (const release of sorted) {
+      const title = document.createElement('h3');
+      title.textContent = 'v' + release.version + ' · ' + release.date + ' — ' + release.title;
+      body.append(title);
+      for (const item of release.items) {
+        const paragraph = document.createElement('p');
+        paragraph.textContent = item;
+        body.append(paragraph);
+      }
+    }
+  }
+  async function openReleaseNotes() {
+    notes.showModal();
+    const body = document.querySelector('#release-body');
+    body.textContent = "読み込み中…";
+    try {
+      const response = await fetch('release-notes.json', {cache: 'no-cache'});
+      if (!response.ok) throw Error('Release notes unavailable');
+      const data = await response.json();
+      renderReleaseNotes(body, data.releases);
+    } catch {
+      body.textContent = "更新情報を取得できませんでした。ゲームはそのまま遊べます。";
+    }
+  }
+  document.querySelector('#notes').addEventListener('click', openReleaseNotes);
   document.querySelector('#close-notes').addEventListener('click',()=>notes.close());
   setInterval(()=>{if(!document.hidden&&started){TapWorld.settle(world);updateHud();}},1000);
   setInterval(()=>{if(!document.hidden&&started)queueSave();},15000);
@@ -44,17 +116,20 @@
     const t = clamp((age - CONFIG.sinkMs - CONFIG.sinkHoldMs) / (CONFIG.reactionMs - CONFIG.sinkMs - CONFIG.sinkHoldMs), 0, 1);
     return Math.cos(t * Math.PI * 1.6) * (1 - t) ** 2;
   }
-  function outlineStrength(tile, now) {
+  function feedbackStrength(tile, now, holdMs, endMs) {
     let strength = held && held.tile === tile ? CONFIG.contactStrength : 0;
     for (const p of pulses) {
       if (p.tile !== tile) continue;
       const age = Math.max(0, now - p.at);
-      const fade = clamp((CONFIG.reactionMs - age) / (CONFIG.reactionMs - CONFIG.outlineHoldMs), 0, 1);
+      const fade = clamp((endMs - age) / (endMs - holdMs), 0, 1);
       // Identification must remain visible through the rebound, not vanish
       // when displacement becomes negative.
       strength = Math.max(strength, age < CONFIG.sinkMs ? reaction(p, now) : fade);
     }
     return strength;
+  }
+  function outlineStrength(tile, now) {
+    return feedbackStrength(tile, now, CONFIG.outlineHoldMs, CONFIG.reactionMs);
   }
   function displacement(x, y, now) {
     let result = 0;
@@ -83,9 +158,10 @@
   }
   function corners(tile, now) { return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => surface(tile.x + dx, tile.y + dy, now, tile)); }
   function tileColor(tile, now) {
-    if(tile.visibility==='hidden') return `hsl(48 16% ${CONFIG.hiddenLightness-CONFIG.pressDarkening*outlineStrength(tile,now)}%)`;
-    if(tile.visibility==='preview') return `hsl(${tile.kind==='tree'?105:tile.kind==='mine'?32:tile.kind==='rock'?55:85} 13% ${CONFIG.previewLightness-CONFIG.pressDarkening*outlineStrength(tile,now)}%)`;
-    return `hsl(${83 + tile.seed % 9} 22% ${69 + tile.seed % 5 - CONFIG.pressDarkening * outlineStrength(tile, now)}%)`;
+    const darkening=CONFIG.pressDarkening*feedbackStrength(tile,now,CONFIG.colorHoldMs,CONFIG.colorReturnMs);
+    if(tile.visibility==='hidden') return `hsl(48 16% ${CONFIG.hiddenLightness-darkening}%)`;
+    if(tile.visibility==='preview') return `hsl(${tile.kind==='tree'?105:tile.kind==='mine'?32:tile.kind==='rock'?55:85} 13% ${CONFIG.previewLightness-darkening}%)`;
+    return `hsl(${83 + tile.seed % 9} 22% ${69 + tile.seed % 5 - darkening}%)`;
   }
   function objectShapes(tile) {
     if (tile.kind === "tree") return [

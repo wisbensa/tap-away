@@ -1,10 +1,10 @@
 * { box-sizing: border-box; }
-:root { color-scheme: light; font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif; color: #46534a; background: #eeeade; }
+:root { color-scheme: light; font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", sans-serif; color: #26392c; background: #eeeade; }
 body { margin: 0; }
 main { height: 100vh; height: 100dvh; position: relative; overflow: hidden; background: radial-gradient(ellipse at 50% 46%, #faf8ee, #e8e3d5); }
 header { position: absolute; inset: 0 0 auto; padding: max(28px, env(safe-area-inset-top)) 32px 0; display: flex; justify-content: space-between; align-items: center; z-index: 3; pointer-events: none; }
 h1 { margin: 0 0 6px; font-family: Georgia, serif; font-weight: normal; font-size: 25px; letter-spacing: .18em; }
-header span { font-size: 9px; letter-spacing: .16em; opacity: .65; }
+header span { font-size: 9px; letter-spacing: .16em; opacity: 1; }
 button { pointer-events: auto; border: 1px solid #a9b0a1; background: #f7f5ebda; border-radius: 24px; color: inherit; padding: 11px 17px; cursor: pointer; font: inherit; font-size: 12px; }
 button:hover { background: #fffdf5; }
 button:focus-visible { outline: 2px solid #59765f; outline-offset: 4px; }
@@ -33,4 +33,20 @@ dialog h3 { font-size:14px; margin-top:28px; } dialog p { font-size:13px; line-h
   #points { grid-column:3; grid-row:1; text-align:right; font-size:11px; letter-spacing:0; }
   .controls button { grid-row:2; width:100%; min-width:0; white-space:nowrap; font-size:11px; padding:10px 6px; background:#f7f5eb; }
   button { min-height:44px; padding:10px 12px; }
+}
+
+/* Readable interface over all terrain shades. */
+main { color: #26392c; }
+header > div:first-child, #points { background: #faf8ee; border: 1px solid #b4b9a9; border-radius: 12px; padding: 10px 14px; box-shadow: 0 2px 8px #19291d14; }
+header span { color: #344a39; }
+header .development-status { font-size: 10px; letter-spacing: 0; }
+button { color: #26392c; background: #faf8ee; border-color: #778571; font-weight: 600; }
+#start-screen, dialog { color: #26392c; }
+footer { z-index: 3; display: flex; justify-content: center; }
+#notice { min-height: 0; max-width: 560px; padding: 14px 20px; border: 1px solid #72856c; border-radius: 14px; background: #263d2e; color: #ffffff; font-size: 14px; font-weight: 600; line-height: 1.8; box-shadow: 0 6px 22px #15251a40; }
+#notice:empty { padding: 0; border: 0; box-shadow: none; }
+@media (max-width: 600px) {
+ header > div:first-child { padding: 8px 10px; }
+ #points { padding: 10px 6px; }
+ #notice { font-size: 13px; padding: 12px 16px; }
 }

@@ -16,10 +16,22 @@ function create(now=Date.now()) {
  tiles.forEach(t=>{const d=Math.max(Math.abs(t.x),Math.abs(t.y));if(d<=3)t.kind='grass';t.requiredCost=Math.max(1,RULES.costs[t.kind]+Math.max(0,Math.ceil(d/5)-1)+(t.road?-1:0));if(t.visibility==='opened')t.developmentProgress=t.requiredCost;});
  return {saveVersion:2,worldVersion:1,phase:1,savedAt:now,lastCalculatedAt:now,bounds:{minX:-30,maxX:30,minY:-30,maxY:30},seed:20261003,generatorVersion:1,points:1000,resources:{wood:0,rock:0,metal:0},facilities:{inn:0,well:0,workshop:0},destination:{...RULES.towers[0]},introduced:false,tiles};
 }
-function settle(w,now=Date.now()){if(!Number.isFinite(now))return;w.points=Math.min(1000,w.points+Math.max(0,now-w.lastCalculatedAt)*1000/RULES.recoveryMs);w.lastCalculatedAt=Math.max(now,w.lastCalculatedAt);}
+function settle(w, now = Date.now()) {
+ if (!Number.isFinite(now)) return;
+ const elapsed = Math.max(0, now - w.lastCalculatedAt);
+ w.points = Math.min(RULES.maxPoints, w.points + elapsed * RULES.maxPoints / RULES.recoveryMs);
+ w.lastCalculatedAt = Math.max(now, w.lastCalculatedAt);
+}
+function applyTowerEffect(w, tower) {
+ for (const tile of w.tiles) {
+  const distance = Math.max(Math.abs(tile.x - tower.x), Math.abs(tile.y - tower.y));
+  if (tile.visibility === 'hidden' && distance <= RULES.towerRadius) tile.visibility = 'preview';
+ }
+ tower.effectApplied = true;
+}
 function develop(w,t,now=Date.now()) {
  settle(w,now);const m=index(w);if(!eligible(t,m))return 'blocked';if(w.points<1)return 'empty';w.points--;t.developmentProgress=Math.min(t.requiredCost,t.developmentProgress+1);if(t.developmentProgress<t.requiredCost)return 'progress';t.visibility='opened';neighbors(t,m).forEach(n=>{if(n.visibility==='hidden')n.visibility='preview';});
- if(t.landmark==='tower'&&!t.effectApplied){w.tiles.forEach(n=>{if(n.visibility==='hidden'&&Math.max(Math.abs(n.x-t.x),Math.abs(n.y-t.y))<=RULES.towerRadius)n.visibility='preview';});t.effectApplied=true;chooseDestination(w);return 'tower';}return 'opened';
+ if(t.landmark==='tower'&&!t.effectApplied){applyTowerEffect(w,t);chooseDestination(w);return 'tower';}return 'opened';
 }
 function chooseDestination(w) {
  const remaining=w.tiles.filter(t=>t.landmark==='tower'&&!t.effectApplied);
@@ -38,8 +50,7 @@ function migrate(w) {
  for(const p of RULES.towers.slice(1)) {
   const t=m.get(key(p.x,p.y));t.landmark='tower';
   if(t.visibility==='opened') {
-   t.effectApplied=true;
-   w.tiles.forEach(n=>{if(n.visibility==='hidden'&&Math.max(Math.abs(n.x-t.x),Math.abs(n.y-t.y))<=RULES.towerRadius)n.visibility='preview';});
+   applyTowerEffect(w,t);
   }
  }
  w.saveVersion=2;chooseDestination(w);return validate(w);
