@@ -15,3 +15,16 @@ footer p { font-size: 14px; letter-spacing: .12em; margin: 0 0 10px; }
 footer span { display: block; font-size: 10px; color: #788174; line-height: 1.8; }
 #notice { min-height: 18px; }
 @media (max-width: 600px) { header { padding-left: 20px; padding-right: 20px; } h1 { font-size: 21px; } footer span { font-size: 9px; } }
+
+[hidden] { display:none !important; }
+.controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+#points { font-size:12px; opacity:1; letter-spacing:0; }
+#start-screen { position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#eeeadef5; text-align:center; }
+#start-screen h2 { font:32px Georgia,serif; letter-spacing:.18em; }
+#start-screen p { line-height:2; margin:10px 24px 32px; }
+#start { padding:14px 40px; }
+dialog { color:inherit; border:1px solid #a9b0a1; border-radius:16px; background:#faf8ee; width:min(540px,90vw); max-height:75dvh; padding:24px; }
+dialog::backdrop { background:#34403666; }
+dialog h3 { font-size:14px; margin-top:28px; } dialog p { font-size:13px; line-height:1.8; }
+#close-notes { float:right; } #notice { font-size:12px; color:#46534a; }
+@media(max-width:600px) { header { padding-top:max(18px,env(safe-area-inset-top)); gap:12px; align-items:flex-start; } .controls { max-width:210px; } #points { width:100%; text-align:right; } button { min-height:44px; padding:10px 12px; } }

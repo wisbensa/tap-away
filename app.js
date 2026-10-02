@@ -1,11 +1,11 @@
 (() => {
   "use strict";
-  // Phase 0 tuning values; these are provisional, not world/game rules.
-  const CONFIG = { extent: 5, tileWidth: 76, tileHeight: 38, heightScale: 15,
+  // Touch tuning inherited from the approved Phase 0 prototype.
+  const CONFIG = { extent: 31, tileWidth: 76, tileHeight: 68, heightScale: 15,
     minZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
     sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
-    pressDepth: 4, minPressPixels: 4, pressDarkening: 30, outlineColor: "48, 65, 40",
-    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, maxPulses: 32, soundVolume: .12 };
+    pressDepth: 2, minPressPixels: 2, pressDarkening: 30, outlineColor: "48, 65, 40",
+    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, maxPulses: 32, soundVolume: .12, hiddenLightness: 34, previewLightness: 46 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
@@ -14,12 +14,23 @@
   let width = 0, height = 0, frame = 0, soundOn = false, audio = null, gesture = null, held = null;
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
-  for (let y = -CONFIG.extent; y < CONFIG.extent; y++) {
-    for (let x = -CONFIG.extent; x < CONFIG.extent; x++) {
-      const seed = Math.abs((x + 17) * 73 + (y + 19) * 137);
-      tiles.push({ x, y, seed, kind: seed % 11 < 3 ? "tree" : seed % 11 === 4 ? "rock" : "grass" });
-    }
-  }
+  const SAVE_KEY='tap-away.world.v1';
+  let world,saveBlocked=false,saveTimer=0,toastTimer=0,started=false;
+  function toast(message){notice.textContent=message;clearTimeout(toastTimer);toastTimer=setTimeout(()=>notice.textContent='',7000);}
+  try{const raw=localStorage.getItem(SAVE_KEY);world=raw===null?TapWorld.create():TapWorld.migrate(JSON.parse(raw));TapWorld.settle(world);}catch{saveBlocked=true;world=TapWorld.create();toast("セーブを読み込めません。元データを保持しています。この回の進行は保存されません。");}
+  tiles.push(...world.tiles);
+  function save(){clearTimeout(saveTimer);if(saveBlocked)return;TapWorld.settle(world);world.savedAt=Date.now();try{localStorage.setItem(SAVE_KEY,JSON.stringify(world));}catch{toast("保存できませんでした。端末の空き容量や保存設定を確認してください。");}}
+  function queueSave(){clearTimeout(saveTimer);saveTimer=setTimeout(save,500);}
+  function updateHud(){document.querySelector('#points').textContent='探索 '+Math.floor(world.points)+' / 1000';}
+  document.querySelector('#start').textContent=world.introduced?"つづきから":"はじめる";
+  document.querySelector('#start').addEventListener('click',()=>{started=true;document.querySelector('#start-screen').hidden=true;if(saveBlocked)toast('セーブを読み込めません。元データを保持しています。この回の進行は保存されません。');if(!world.introduced&&!saveBlocked){world.introduced=true;toast("隣の土地をポチポチ開拓。★の古い塔まで行くと、遠くを見渡せます。");queueSave();}updateHud();requestDraw();});
+  const devButton=document.querySelector('#dev-reset');
+  devButton.addEventListener('click',()=>{if(!confirm("Tap Awayの進行を初期状態に戻しますか？"))return;try{clearTimeout(saveTimer);localStorage.removeItem(SAVE_KEY);saveBlocked=true;location.reload();}catch{toast("セーブを削除できませんでした。");}});
+  const notes=document.querySelector('#release-dialog');
+  document.querySelector('#notes').addEventListener('click',async()=>{notes.showModal();const body=document.querySelector('#release-body');body.textContent="読み込み中…";try{const response=await fetch('release-notes.json',{cache:'no-cache'});if(!response.ok)throw Error();const data=await response.json();body.replaceChildren();for(const release of data.releases.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.version.localeCompare(a.version,undefined,{numeric:true}))){const title=document.createElement('h3');title.textContent='v'+release.version+' · '+release.date+' — '+release.title;body.append(title);for(const item of release.items){const paragraph=document.createElement('p');paragraph.textContent=item;body.append(paragraph);}}}catch{body.textContent="更新情報を取得できませんでした。ゲームはそのまま遊べます。";}});
+  document.querySelector('#close-notes').addEventListener('click',()=>notes.close());
+  setInterval(()=>{if(!document.hidden&&started){TapWorld.settle(world);updateHud();}},1000);
+  setInterval(()=>{if(!document.hidden&&started)queueSave();},15000);
   tiles.sort((a, b) => a.y - b.y || a.x - b.x);
   function project(x, y, z = 0) {
     return { x: width / 2 + camera.x + x * CONFIG.tileWidth * camera.zoom,
@@ -72,6 +83,8 @@
   }
   function corners(tile, now) { return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => surface(tile.x + dx, tile.y + dy, now, tile)); }
   function tileColor(tile, now) {
+    if(tile.visibility==='hidden') return `hsl(48 16% ${CONFIG.hiddenLightness-CONFIG.pressDarkening*outlineStrength(tile,now)}%)`;
+    if(tile.visibility==='preview') return `hsl(${tile.kind==='tree'?105:tile.kind==='mine'?32:tile.kind==='rock'?55:85} 13% ${CONFIG.previewLightness-CONFIG.pressDarkening*outlineStrength(tile,now)}%)`;
     return `hsl(${83 + tile.seed % 9} 22% ${69 + tile.seed % 5 - CONFIG.pressDarkening * outlineStrength(tile, now)}%)`;
   }
   function objectShapes(tile) {
@@ -80,7 +93,7 @@
       [{x:-15,y:-12},{x:0,y:-42-tile.seed%7},{x:14,y:-12},{x:0,y:-6}],
       [{x:0,y:-42-tile.seed%7},{x:14,y:-12},{x:0,y:-6}]
     ];
-    if (tile.kind === "rock") return [
+    if ((tile.kind === "rock" || tile.kind === "mine")) return [
       [{x:-13,y:0},{x:-9,y:-15},{x:3,y:-23},{x:15,y:-10},{x:12,y:3}],
       [{x:3,y:-23},{x:15,y:-10},{x:12,y:3},{x:0,y:-4}]
     ];
@@ -101,8 +114,10 @@
     const center = project(0, 0);
     ctx.save(); ctx.translate(center.x, center.y + 35 * camera.zoom); ctx.scale(camera.zoom, camera.zoom);
     ctx.fillStyle = "#62634c12"; ctx.beginPath(); ctx.ellipse(0, 0, 315, 150, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    const worldIndex=TapWorld.index(world);
     for (const tile of tiles) {
       const pts = corners(tile, now), { x, y, seed } = tile;
+      if(pts.every(p=>p.x<-80)||pts.every(p=>p.x>width+80)||pts.every(p=>p.y<-20)||pts.every(p=>p.y>height+100)) continue;
       const base = surface(x + .5, y + .5, now);
       const remember = points => hitAreas.push({ tile, points, base, zoom:camera.zoom });
       if (y === CONFIG.extent - 1) {
@@ -111,25 +126,43 @@
         polygon(side, "#c8baa0");
         remember(side);
       }
-      polygon(pts, tileColor(tile, now), "#657d4b22");
+      polygon(pts, tileColor(tile, now), tile.visibility==='hidden'?'#eeeade0a':'#657d4b22');
       remember(pts);
+      if(tile.visibility==='preview'&&TapWorld.eligible(tile,worldIndex)) {
+        ctx.save();ctx.setLineDash([3*camera.zoom,5*camera.zoom]);ctx.strokeStyle='#75856b';ctx.lineWidth=1;ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.stroke();ctx.restore();
+      }
+      if(tile.x===0&&tile.y===0 || tile.landmark==='tower'&&(tile.visibility==='opened'||world.destination?.x===tile.x&&world.destination?.y===tile.y)) {
+        ctx.save();ctx.translate(base.x,base.y);ctx.scale(camera.zoom,camera.zoom);
+        if(tile.x===0&&tile.y===0){polygon([{x:-20,y:0},{x:20,y:0},{x:20,y:-22},{x:-20,y:-22}],'#d6c4a2');polygon([{x:-24,y:-22},{x:0,y:-40},{x:24,y:-22}],'#9a7761');ctx.fillStyle='#77654f';ctx.fillRect(-4,-15,8,15);}
+        else{ctx.globalAlpha=tile.visibility==='opened'?1:.5;polygon([{x:-9,y:0},{x:9,y:0},{x:7,y:-56},{x:-7,y:-56}],'#8d9482');if(tile.visibility==='opened'){ctx.fillStyle='#555f50';ctx.fillRect(-2,-44,4,9);}}
+        ctx.restore();continue;
+      }
+      if(tile.visibility==='hidden') {
+        // Sparse, sharp cartographic strokes; no blurred or moving overlay.
+        if(camera.zoom>.8 && seed%7===0) {
+          ctx.save();ctx.strokeStyle='#eeeade16';ctx.lineWidth=.8;
+          ctx.beginPath();ctx.moveTo(base.x-7*camera.zoom,base.y);ctx.lineTo(base.x+7*camera.zoom,base.y);ctx.stroke();ctx.restore();
+        }
+        continue;
+      }
       const shapes = objectShapes(tile);
-      ctx.save(); ctx.translate(base.x, base.y); ctx.scale(camera.zoom, camera.zoom);
+      ctx.save(); ctx.translate(base.x, base.y); ctx.scale(camera.zoom, camera.zoom); ctx.globalAlpha=tile.visibility==='preview'?.38:1;
       ctx.fillStyle = "#455e3f21"; ctx.beginPath(); ctx.ellipse(3, 2, tile.kind === "grass" ? 4 : 15, 5, -.2, 0, Math.PI * 2); ctx.fill();
       if (tile.kind === "tree") {
         ctx.strokeStyle = "#736b4d"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -21); ctx.stroke();
         polygon(shapes[1], "#608164");
         polygon(shapes[2], "#4e7158");
         if (camera.zoom > .85) { ctx.strokeStyle = "#aac09966"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-9,-16); ctx.lineTo(-1,-32); ctx.stroke(); }
-      } else if (tile.kind === "rock") {
+      } else if ((tile.kind === "rock" || tile.kind === "mine")) {
         polygon(shapes[0], "#a5aaa0", "#808b80");
-        polygon(shapes[1], "#8c998e");
+        polygon(shapes[1],tile.kind==='mine'?'#98774e':'#8c998e');
       } else if (camera.zoom > .75) {
         ctx.strokeStyle = "#70864e88"; ctx.lineWidth = .9; ctx.beginPath();
         for (let k = 0; k < 3; k++) { ctx.moveTo(k * 5 - 8, 0); ctx.lineTo(k * 5 - 10, -3 - k % 2); } ctx.stroke();
       }
       ctx.restore();
     }
+    drawDestination(now);
     // Draw last so neighboring tile fills cannot hide the selected edges.
     for (const tile of tiles) {
       const strength = outlineStrength(tile, now);
@@ -143,6 +176,19 @@
       ctx.stroke();
     }
     if (pulses.length) requestDraw();
+  }
+  function drawDestination(now) {
+    if(!world.destination)return;
+    const p=surface(world.destination.x+.5,world.destination.y+.5,now);
+    const target={x:p.x,y:p.y-64*camera.zoom};
+    const margin=32,top=140,bottom=height-120;
+    const x=clamp(target.x,margin,width-margin),y=clamp(target.y,top,bottom);
+    ctx.save();ctx.fillStyle='#f0db93';ctx.strokeStyle='#655a3d';ctx.lineWidth=3;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.strokeText('★',x,y);ctx.fillText('★',x,y);
+    if(x!==target.x||y!==target.y) {
+      const angle=Math.atan2(target.y-y,target.x-x);ctx.translate(x,y);ctx.rotate(angle);
+      polygon([{x:16,y:-4},{x:23,y:0},{x:16,y:4}],'#f0db93');
+    }
+    ctx.restore();
   }
   function requestDraw() { if (!frame) frame = requestAnimationFrame(draw); }
   function resize() {
@@ -163,8 +209,9 @@
   function pair() { const [a,b] = [...pointers.values()]; return { midpoint: {x:(a.x+b.x)/2,y:(a.y+b.y)/2}, distance:Math.hypot(a.x-b.x,a.y-b.y) }; }
   function press(p) {
     const hit = pick(p);
-    if (!hit) return;
+    if (!hit || !started) return;
     const {tile, base, zoom} = hit;
+    if (!TapWorld.eligible(tile, TapWorld.index(world))) return;
     const localX = clamp((p.x-base.x) / (CONFIG.tileWidth*zoom),-.4,.4);
     const localY = clamp((p.y-base.y) / (CONFIG.tileHeight*zoom),-.4,.4);
     held = {x:tile.x+.5+localX,y:tile.y+.5+localY,tile};
@@ -172,7 +219,8 @@
   }
   function releasePress(commit) {
     if (!held) return;
-    if (commit) pulses.push({...held,at:performance.now()});
+    if(commit && !TapWorld.eligible(held.tile,TapWorld.index(world))) commit=false;
+    if(commit){const result=TapWorld.develop(world,held.tile);if(result==='empty')toast("探索ポイントが回復するまで、ひと休み。");if(result==='tower')toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');if(result!=='blocked'&&result!=='empty')queueSave();updateHud();pulses.push({...held,at:performance.now()});}
     held = null;
     if (pulses.length > CONFIG.maxPulses) pulses.shift();
     if (commit) playSound();
@@ -227,6 +275,8 @@
   for (const name of ["pointerup","pointercancel","lostpointercapture"]) canvas.addEventListener(name,endPointer);
   canvas.addEventListener("wheel", event => { event.preventDefault(); zoomAt(point(event),Math.exp(-clamp(event.deltaY,-120,120)*.002)); },{passive:false});
   window.addEventListener("resize",resize);
-  document.addEventListener("visibilitychange",() => { if (document.hidden) { pointers.clear(); gesture = null; held = null; pulses.length = 0; canvas.classList.remove("dragging"); } requestDraw(); });
+  document.addEventListener("visibilitychange",() => { if (document.hidden) { save(); pointers.clear(); gesture = null; held = null; pulses.length = 0; canvas.classList.remove("dragging"); } else { TapWorld.settle(world); updateHud(); queueSave(); } requestDraw(); });
+  window.addEventListener('pagehide',save);
+  updateHud();
   resize();
 })();
