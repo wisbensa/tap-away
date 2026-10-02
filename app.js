@@ -1,15 +1,16 @@
 (() => {
   "use strict";
   // Phase 0 tuning values; these are provisional, not world/game rules.
-  const CONFIG = { extent: 5, tileWidth: 76, tileHeight: 38, heightScale: 15,
-    minZoom: .55, maxZoom: 2.4, dragThreshold: 7, reactionMs: 550,
+  const CONFIG = { extent: 5, tileWidth: 76, tileHeight: 54, heightScale: 15,
+    minZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
     sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
-    pressDepth: 12, reactionRadius: 1.5, outlineColor: "48, 65, 40",
-    outlineWidth: 2, maxPulses: 32, soundVolume: .12 };
+    pressDepth: 12, minPressPixels: 12, reactionRadius: 1.5, outlineColor: "48, 65, 40",
+    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, maxPulses: 32, soundVolume: .12 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
   const pointers = new Map(), pulses = [], tiles = [];
+  const hitAreas = [];
   let width = 0, height = 0, frame = 0, soundOn = false, audio = null, gesture = null, held = null;
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
@@ -34,7 +35,14 @@
   }
   function outlineStrength(tile, now) {
     let strength = held && held.tile === tile ? CONFIG.contactStrength : 0;
-    for (const p of pulses) if (p.tile === tile) strength = Math.max(strength, reaction(p, now));
+    for (const p of pulses) {
+      if (p.tile !== tile) continue;
+      const age = Math.max(0, now - p.at);
+      const fade = clamp((CONFIG.reactionMs - age) / (CONFIG.reactionMs - CONFIG.outlineHoldMs), 0, 1);
+      // Identification must remain visible through the rebound, not vanish
+      // when displacement becomes negative.
+      strength = Math.max(strength, age < CONFIG.sinkMs ? reaction(p, now) : fade);
+    }
     return strength;
   }
   function displacement(x, y, now) {
@@ -42,9 +50,9 @@
     for (const p of held ? [...pulses, held] : pulses) {
       const d = Math.hypot(x - p.x, y - p.y);
       const falloff = Math.exp(-d * d / (CONFIG.reactionRadius ** 2) * 2.5);
-      result += CONFIG.pressDepth * falloff * reaction(p, now);
+      result += Math.max(CONFIG.pressDepth, CONFIG.minPressPixels / camera.zoom) * falloff * reaction(p, now);
     }
-    return clamp(result, -4, 13);
+    return clamp(result, -4 / camera.zoom, Math.max(13, CONFIG.minPressPixels / camera.zoom));
   }
   function surface(x, y, now) { return project(x, y, heightAt(x, y) * CONFIG.heightScale - displacement(x, y, now)); }
   function polygon(points, fill, stroke) {
@@ -61,32 +69,57 @@
     return yes;
   }
   function corners(tile, now) { return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => surface(tile.x + dx, tile.y + dy, now)); }
+  function objectShapes(tile) {
+    if (tile.kind === "tree") return [
+      [{x:-1.5,y:0},{x:1.5,y:0},{x:1.5,y:-21},{x:-1.5,y:-21}],
+      [{x:-15,y:-12},{x:0,y:-42-tile.seed%7},{x:14,y:-12},{x:0,y:-6}],
+      [{x:0,y:-42-tile.seed%7},{x:14,y:-12},{x:0,y:-6}]
+    ];
+    if (tile.kind === "rock") return [
+      [{x:-13,y:0},{x:-9,y:-15},{x:3,y:-23},{x:15,y:-10},{x:12,y:3}],
+      [{x:3,y:-23},{x:15,y:-10},{x:12,y:3},{x:0,y:-4}]
+    ];
+    return [];
+  }
+  function pick(p) {
+    // Use the geometry of the last displayed frame, in reverse paint order.
+    for (let i = hitAreas.length - 1; i >= 0; i--) {
+      if (inside(p, hitAreas[i].points)) return hitAreas[i];
+    }
+    return null;
+  }
   function draw(now) {
     frame = 0;
     while (pulses.length && now - pulses[0].at >= CONFIG.reactionMs) pulses.shift();
     ctx.clearRect(0, 0, width, height);
+    hitAreas.length = 0;
     const center = project(0, 0);
     ctx.save(); ctx.translate(center.x, center.y + 35 * camera.zoom); ctx.scale(camera.zoom, camera.zoom);
     ctx.fillStyle = "#62634c12"; ctx.beginPath(); ctx.ellipse(0, 0, 315, 150, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     for (const tile of tiles) {
       const pts = corners(tile, now), { x, y, seed } = tile;
+      const base = surface(x + .5, y + .5, now);
+      const remember = points => hitAreas.push({ tile, points, base, zoom:camera.zoom });
       if (x === CONFIG.extent - 1 || y === CONFIG.extent - 1) {
         const edge = x === CONFIG.extent - 1 ? [pts[1], pts[2]] : [pts[2], pts[3]];
-        polygon([edge[0], edge[1], {x:edge[1].x,y:edge[1].y+17*camera.zoom}, {x:edge[0].x,y:edge[0].y+17*camera.zoom}], x === CONFIG.extent - 1 ? "#b2a48b" : "#c8baa0");
+        const side = [edge[0], edge[1], {x:edge[1].x,y:edge[1].y+17*camera.zoom}, {x:edge[0].x,y:edge[0].y+17*camera.zoom}];
+        polygon(side, x === CONFIG.extent - 1 ? "#b2a48b" : "#c8baa0");
+        remember(side);
       }
       const press = displacement(x + .5, y + .5, now);
       polygon(pts, `hsl(${83 + seed % 9} 22% ${69 + seed % 5 - press * .7}%)`, "#657d4b22");
-      const base = surface(x + .5, y + .5, now);
+      remember(pts);
+      const shapes = objectShapes(tile);
       ctx.save(); ctx.translate(base.x, base.y); ctx.scale(camera.zoom, camera.zoom);
       ctx.fillStyle = "#455e3f21"; ctx.beginPath(); ctx.ellipse(3, 2, tile.kind === "grass" ? 4 : 15, 5, -.2, 0, Math.PI * 2); ctx.fill();
       if (tile.kind === "tree") {
         ctx.strokeStyle = "#736b4d"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -21); ctx.stroke();
-        polygon([{x:-15,y:-12},{x:0,y:-42-seed%7},{x:14,y:-12},{x:0,y:-6}], "#608164");
-        polygon([{x:0,y:-42-seed%7},{x:14,y:-12},{x:0,y:-6}], "#4e7158");
+        polygon(shapes[1], "#608164");
+        polygon(shapes[2], "#4e7158");
         if (camera.zoom > .85) { ctx.strokeStyle = "#aac09966"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-9,-16); ctx.lineTo(-1,-32); ctx.stroke(); }
       } else if (tile.kind === "rock") {
-        polygon([{x:-13,y:0},{x:-9,y:-15},{x:3,y:-23},{x:15,y:-10},{x:12,y:3}], "#a5aaa0", "#808b80");
-        polygon([{x:3,y:-23},{x:15,y:-10},{x:12,y:3},{x:0,y:-4}], "#8c998e");
+        polygon(shapes[0], "#a5aaa0", "#808b80");
+        polygon(shapes[1], "#8c998e");
       } else if (camera.zoom > .75) {
         ctx.strokeStyle = "#70864e88"; ctx.lineWidth = .9; ctx.beginPath();
         for (let k = 0; k < 3; k++) { ctx.moveTo(k * 5 - 8, 0); ctx.lineTo(k * 5 - 10, -3 - k % 2); } ctx.stroke();
@@ -101,7 +134,7 @@
       corners(tile, now).forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
       ctx.closePath();
       ctx.strokeStyle = `rgba(${CONFIG.outlineColor}, ${strength * .85})`;
-      ctx.lineWidth = Math.max(1.25, CONFIG.outlineWidth * camera.zoom);
+      ctx.lineWidth = Math.max(CONFIG.minOutlinePixels, CONFIG.outlineWidth * camera.zoom);
       ctx.lineJoin = "round";
       ctx.stroke();
     }
@@ -125,17 +158,11 @@
   }
   function pair() { const [a,b] = [...pointers.values()]; return { midpoint: {x:(a.x+b.x)/2,y:(a.y+b.y)/2}, distance:Math.hypot(a.x-b.x,a.y-b.y) }; }
   function press(p) {
-    const now = performance.now();
-    // Reverse painter order gives raised objects their owning tile as well.
-    const tile = [...tiles].reverse().find(t => {
-      const base = surface(t.x+.5,t.y+.5,now);
-      const objectHit = t.kind !== "grass" && Math.abs(p.x-base.x) < 16*camera.zoom && p.y <= base.y && p.y >= base.y-(t.kind === "tree" ? 49 : 24)*camera.zoom;
-      return objectHit || inside(p, corners(t,now));
-    });
-    if (!tile) return;
-    const base = surface(tile.x+.5,tile.y+.5,now);
-    const dx = (p.x-base.x) / (CONFIG.tileWidth/2*camera.zoom);
-    const dy = (p.y-base.y) / (CONFIG.tileHeight/2*camera.zoom);
+    const hit = pick(p);
+    if (!hit) return;
+    const {tile, base, zoom} = hit;
+    const dx = (p.x-base.x) / (CONFIG.tileWidth/2*zoom);
+    const dy = (p.y-base.y) / (CONFIG.tileHeight/2*zoom);
     const localX = clamp((dx+dy)/2,-.4,.4), localY = clamp((dy-dx)/2,-.4,.4);
     held = {x:tile.x+.5+localX,y:tile.y+.5+localY,tile};
     requestDraw();
@@ -166,7 +193,11 @@
   canvas.addEventListener("pointerdown", event => {
     if (event.button !== 0) return;
     const p = point(event); pointers.set(event.pointerId,p); canvas.setPointerCapture(event.pointerId);
-    if (pointers.size === 1) { gesture = { start:p, last:p, moved:false, multi:false }; press(p); }
+    if (pointers.size === 1) {
+      gesture = { start:p, last:p, moved:false, multi:false,
+        threshold:event.pointerType === "touch" ? CONFIG.touchDragThreshold : CONFIG.dragThreshold };
+      press(p);
+    }
     if (pointers.size >= 2) { releasePress(false); gesture.multi = true; gesture.pair = pair(); }
   });
   canvas.addEventListener("pointermove", event => {
@@ -177,7 +208,7 @@
       if (prev && prev.distance > 0) { zoomAt(prev.midpoint,next.distance/prev.distance); camera.x += next.midpoint.x-prev.midpoint.x; camera.y += next.midpoint.y-prev.midpoint.y; }
       gesture.pair = next; requestDraw();
     } else {
-      if (Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) > CONFIG.dragThreshold) { gesture.moved = true; releasePress(false); }
+      if (Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) > gesture.threshold) { gesture.moved = true; releasePress(false); }
       if (gesture.moved || gesture.multi) { camera.x += p.x-gesture.last.x; camera.y += p.y-gesture.last.y; canvas.classList.add("dragging"); requestDraw(); }
       gesture.last = p;
     }
@@ -185,7 +216,7 @@
   function endPointer(event) {
     if (!pointers.has(event.pointerId)) return;
     const p = point(event);
-    releasePress(event.type === "pointerup" && pointers.size === 1 && !gesture.multi && !gesture.moved && Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) <= CONFIG.dragThreshold);
+    releasePress(event.type === "pointerup" && pointers.size === 1 && !gesture.multi && !gesture.moved && Math.hypot(p.x-gesture.start.x,p.y-gesture.start.y) <= gesture.threshold);
     pointers.delete(event.pointerId);
     if (pointers.size === 1) gesture.last = [...pointers.values()][0];
     if (!pointers.size) { gesture = null; canvas.classList.remove("dragging"); }
