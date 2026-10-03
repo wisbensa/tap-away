@@ -2,7 +2,7 @@
   "use strict";
   // Touch tuning inherited from the approved Phase 0 prototype.
   const CONFIG = { tileWidth: 76, tileHeight: 72, heightScale: 15,
-    minZoom: .12, minTapZoom: .65, initialMinZoom: .65, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
+    minZoom: .12, minTapZoom: .25, initialMinZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
     sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
     pressDepth: 2, minPressPixels: 2, pressDarkening: 30,
     outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, colorHoldMs: 100, colorReturnMs: 200, maxPulses: 32, soundVolume: .12,
