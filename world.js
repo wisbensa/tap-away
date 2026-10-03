@@ -149,7 +149,7 @@
     if (!finite(now) || !isSeed(seed)) throw Error('Invalid generation input');
     const tiles = [];
     for (let y = -RULES.extent; y <= RULES.extent; y++) for (let x = -RULES.extent; x <= RULES.extent; x++) tiles.push(generateTile(seed, x, y));
-    const w = {saveVersion: 4, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
+    const w = {saveVersion: 5, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
       seed, generatorVersion: 2, points: RULES.maxPoints, resources: {wood: 0, rock: 0, metal: 0},
       facilities: {inn: 0, well: 0, workshop: 0}, destination: null, introduced: false, tiles, monuments: [], scenery: []};
     const m = index(w);
@@ -226,7 +226,7 @@
     if (memoPlaced) {w.memo.status = 'placed'; w.memo.clue = {x: t.x, y: t.y};}
     const monumentReached = previousMonuments.find(p => !p.reached && monumentStatus(w, p.monument, m).reached)?.monument || null;
     const monumentRevealed = previousMonuments.find(p => !p.fullyRevealed && monumentStatus(w, p.monument, m).fullyRevealed)?.monument || null;
-    if (t.landmark === 'tower' || monumentReached && w.memo.status === 'collected' && w.memo.monumentId === monumentReached.id) chooseDestination(w);
+    if (t.landmark === 'tower') chooseDestination(w);
     if (onComplete) onComplete({tile:t, regions, automatic, memoPlaced, monumentReached, monumentRevealed});
     return t.landmark === 'tower' ? 'tower' : 'opened';
   }
@@ -245,17 +245,22 @@
     const monument = w.monuments.find(object => object.id === w.memo.monumentId);
     const alreadyReached = monumentStatus(w, monument).reached;
     w.memo.status = 'collected';
-    // A note about a place already reached must not replace another destination.
-    if (!alreadyReached) chooseDestination(w);
     return {monument, alreadyReached};
   }
   function chooseDestination(w) {
-    if (w.memo?.status === 'collected') {
-      const monument = w.monuments.find(object => object.id === w.memo.monumentId);
-      if (monument && !monumentStatus(w, monument).reached) {w.destination = {x: monument.x, y: monument.y}; return;}
-    }
     const remaining = w.tiles.filter(t => t.landmark === 'tower' && !t.effectApplied).sort((a, b) => a.towerOrder - b.towerOrder);
     w.destination = remaining.length ? {x: remaining[0].x, y: remaining[0].y} : null;
+  }
+  function destinations(w, m = index(w)) {
+    const result = [], seen = new Set();
+    const add = p => {if (!seen.has(key(p.x, p.y))) {seen.add(key(p.x, p.y)); result.push({x: p.x, y: p.y});}};
+    const tower = w.destination && m.get(key(w.destination.x, w.destination.y));
+    if (tower?.landmark === 'tower' && !tower.effectApplied) add(tower);
+    if (w.memo.status === 'collected') {
+      const monument = w.monuments.find(object => object.id === w.memo.monumentId);
+      if (monument && !monumentStatus(w, monument, m).reached) add(monument);
+    }
+    return result;
   }
   function protectedMonumentCoordinates(w, width = RULES.monumentProtectionWidth) {
     if (!Number.isInteger(width) || width < 0) throw Error('Invalid protection width');
@@ -309,13 +314,13 @@
     }
     if ([...counts.values()].some(n => n !== RULES.sceneryPerType)) fail();
     let target = null;
-    if (saveVersion === 4) {
+    if (saveVersion >= 4) {
       if (!w.memo || Array.isArray(w.memo) || !['waiting', 'placed', 'collected'].includes(w.memo.status) ||
         !w.monuments.some(monument => monument.id === w.memo.monumentId)) fail();
       if (w.memo.status === 'waiting') {if (w.memo.clue !== null) fail();}
       else if (!coordinate(w.memo.clue) || m.get(key(w.memo.clue.x, w.memo.clue.y)).visibility !== 'opened' ||
         !ordinaryMemoTile(w, m.get(key(w.memo.clue.x, w.memo.clue.y))) || !towers.some(t => t.towerOrder === 0 && t.effectApplied)) fail();
-      if (w.memo.status === 'collected') {
+      if (saveVersion === 4 && w.memo.status === 'collected') {
         const monument = w.monuments.find(object => object.id === w.memo.monumentId);
         if (!monumentStatus(w, monument, m).reached) target = monument;
       }
@@ -331,7 +336,7 @@
     // Saved terrain/costs are authoritative; validation never invokes the generator.
     return w;
   }
-  function validate(w) {return validateWorld(w, 4);}
+  function validate(w) {return validateWorld(w, 5);}
   function validateLegacy(w) {
     const fail = () => {throw Error('Invalid legacy save data');};
     if (!w || ![1, 2].includes(w.saveVersion) || w.worldVersion !== 1 || w.phase !== 1 || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > 1000 || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
@@ -353,12 +358,21 @@
     return w;
   }
   function migrate(w, now = Date.now(), seed) {
-    if (w?.saveVersion === 4) return validate(w);
+    if (w?.saveVersion === 5) return validate(w);
+    if (w?.saveVersion === 4) {
+      validateWorld(w, 4);
+      const migrated = JSON.parse(JSON.stringify(w));
+      migrated.saveVersion = 5;
+      // Version 4 replaced the tower marker with the memo target. Restore only
+      // that hidden tower guide; all land, progress and event data remain saved.
+      if (migrated.destination && index(migrated).get(key(migrated.destination.x, migrated.destination.y)).landmark !== 'tower') chooseDestination(migrated);
+      return validate(migrated);
+    }
     if (w?.saveVersion === 3) {
       validateWorld(w, 3);
       // Only the new event state is added; all saved land and reservations stay authoritative.
       const migrated = JSON.parse(JSON.stringify(w));
-      migrated.saveVersion = 4;
+      migrated.saveVersion = 5;
       migrated.memo = {status: 'waiting', clue: null, monumentId: migrated.monuments[0].id};
       return validate(migrated);
     }
@@ -367,5 +381,5 @@
     // Invalid/unknown saves never reach create(), and the input is never modified.
     return create(now, seed);
   }
-  globalThis.TapWorld = {RULES, create, generateTile, index, eligible, settle, develop, collectMemo, monumentStatus, validate, migrate, protectedMonumentCoordinates};
+  globalThis.TapWorld = {RULES, create, generateTile, index, eligible, settle, develop, collectMemo, monumentStatus, destinations, validate, migrate, protectedMonumentCoordinates};
 })();

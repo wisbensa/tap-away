@@ -10,7 +10,8 @@
     completionMs: 420, completionRevealMs: 300, completionEdgeMs: 360,
     waveRadius: 2, waveDelayMs: 75, waveMs: 230, waveOpacity: .5,
     enclosureStartMs: 180, enclosureStepMs: 150, enclosureFadeMs: 150, maxOpenings: 64,
-    towerRingMs: 80, towerFadeMs: 120, memoDisplayMs: 7000, memoMinPixels: 7 };
+    towerRingMs: 80, towerFadeMs: 120, memoDisplayMs: 7000, memoMinPixels: 7,
+    markerMargin: 36, markerRadius: 28, markerSpacing: 60 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
@@ -536,34 +537,44 @@
     }
   }
   function drawDestination(now) {
-    if(!world.destination)return;
-    const p=surface(world.destination.x+.5,world.destination.y+.5,now);
-    const target={x:p.x,y:p.y-64*camera.zoom};
-    const margin=36;
+    const destinations=TapWorld.destinations(world,tilesByCoordinate);
+    if(!destinations.length)return;
+    const margin=CONFIG.markerMargin,spacing=CONFIG.markerSpacing;
     const headerBottom=document.querySelector('header').getBoundingClientRect().bottom;
     const footerTop=document.querySelector('footer').getBoundingClientRect().top;
     const top=Math.min(headerBottom+margin,height/2),bottom=Math.max(top,Math.min(height,footerTop)-margin);
-    let x=clamp(target.x,margin,width-margin),y=clamp(target.y,top,bottom);
-    if(!memoPanel.hidden) {
-      const rect=memoPanel.getBoundingClientRect();
-      const overlaps=(a,b)=>a>rect.left-margin&&a<rect.right+margin&&b>rect.top-margin&&b<rect.bottom+margin;
-      if(overlaps(x,y)) {
-        const candidates=[[rect.right+margin,y],[rect.left-margin,y],[x,rect.bottom+margin],[x,rect.top-margin]]
-          .map(([a,b])=>({x:clamp(a,margin,width-margin),y:clamp(b,top,bottom)}))
-          .filter(p=>!overlaps(p.x,p.y)).sort((a,b)=>(a.x-x)**2+(a.y-y)**2-((b.x-x)**2+(b.y-y)**2));
-        if(candidates.length) ({x,y}=candidates[0]);
+    const panel=memoPanel.hidden?null:memoPanel.getBoundingClientRect(),placed=[];
+    const available=(x,y)=>!(panel&&x>panel.left-margin&&x<panel.right+margin&&y>panel.top-margin&&y<panel.bottom+margin)&&
+      placed.every(p=>Math.hypot(p.x-x,p.y-y)>=spacing);
+    for(const destination of destinations) {
+      const p=surface(destination.x+.5,destination.y+.5,now),target={x:p.x,y:p.y-64*camera.zoom};
+      let x=clamp(target.x,margin,width-margin),y=clamp(target.y,top,bottom);
+      if(!available(x,y)) {
+        const candidates=[];
+        const add=(a,b)=>{a=clamp(a,margin,width-margin);b=clamp(b,top,bottom);if(available(a,b))candidates.push({x:a,y:b});};
+        if(panel) {add(panel.left-margin,y);add(panel.right+margin,y);add(x,panel.top-margin);add(x,panel.bottom+margin);}
+        for(const other of placed)for(const [dx,dy] of [[-1,0],[1,0],[0,-1],[0,1]])add(other.x+dx*spacing,other.y+dy*spacing);
+        // A small bounded grid also finds space when both arrows share an edge.
+        for(let a=margin;a<=width-margin;a+=spacing)for(let b=top;b<=bottom;b+=spacing)add(a,b);
+        for(let a=margin;a<=width-margin;a+=spacing)add(a,bottom);
+        for(let b=top;b<=bottom;b+=spacing)add(width-margin,b);
+        add(width-margin,bottom);
+        candidates.sort((a,b)=>(a.x-x)**2+(a.y-y)**2-((b.x-x)**2+(b.y-y)**2));
+        if(candidates.length)({x,y}=candidates[0]);
       }
+      placed.push({x,y});
+      const offscreen=x!==target.x||y!==target.y,ui=TapSkin.current.ui;
+      const label=tilesByCoordinate.get(destination.x+','+destination.y)?.landmark==='tower'?'塔':'アーチ';
+      ctx.save();
+      if(offscreen){ctx.beginPath();ctx.arc(x,y,CONFIG.markerRadius,0,Math.PI*2);ctx.fillStyle=ui.surfaceColor;ctx.fill();ctx.strokeStyle=ui.textColor;ctx.lineWidth=2;ctx.stroke();}
+      ctx.fillStyle=ui.textColor;ctx.strokeStyle=ui.surfaceColor;ctx.lineWidth=3;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.strokeText('★',x,y);ctx.fillText('★',x,y);
+      if(destinations.length>1) {ctx.font='10px sans-serif';ctx.strokeText(label,x,y+16);ctx.fillText(label,x,y+16);}
+      if(offscreen) {
+        const angle=Math.atan2(target.y-y,target.x-x);ctx.translate(x,y);ctx.rotate(angle);
+        polygon([{x:17,y:-7},{x:27,y:0},{x:17,y:7}],ui.textColor);
+      }
+      ctx.restore();
     }
-    const offscreen=x!==target.x||y!==target.y;
-    ctx.save();
-    const ui=TapSkin.current.ui;
-    if(offscreen){ctx.beginPath();ctx.arc(x,y,28,0,Math.PI*2);ctx.fillStyle=ui.surfaceColor;ctx.fill();ctx.strokeStyle=ui.textColor;ctx.lineWidth=2;ctx.stroke();}
-    ctx.fillStyle=ui.textColor;ctx.strokeStyle=ui.surfaceColor;ctx.lineWidth=3;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.strokeText('★',x,y);ctx.fillText('★',x,y);
-    if(offscreen) {
-      const angle=Math.atan2(target.y-y,target.x-x);ctx.translate(x,y);ctx.rotate(angle);
-      polygon([{x:17,y:-7},{x:27,y:0},{x:17,y:7}],ui.textColor);
-    }
-    ctx.restore();
   }
   function requestDraw() { if (!frame) frame = requestAnimationFrame(draw); }
   function resize() {
@@ -639,9 +650,7 @@
           const distance=Math.max(Math.abs(tile.x-held.tile.x),Math.abs(tile.y-held.tile.y));
           towerReveals.set(tile.x+','+tile.y,{at:now+distance*CONFIG.towerRingMs});
         }
-        const destinationMonument=world.monuments.some(m=>world.destination?.x===m.x&&world.destination?.y===m.y);
-        toast(destinationMonument?'古い塔から視界が広がりました。★の石のアーチへ進んでみましょう。':
-          world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');
+        toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');
       }
       if(completion?.monumentReached)toast('大きな石のアーチを見つけました。周りの土地を開くと、全体が見えてきます。');
       if(completion?.monumentRevealed)toast('石のアーチの全体が姿を現しました。地図は、まだ広げていけます。');
