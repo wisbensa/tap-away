@@ -37,6 +37,8 @@
       "body":[{"x":-20,"y":0},{"x":20,"y":0},{"x":20,"y":-22},{"x":-20,"y":-22}],
       "roof":[{"x":-24,"y":-22},{"x":0,"y":-40},{"x":24,"y":-22}]
     },
+    "stone_arch":{"baseColor":"#a3a592","faceColor":"#d3ccaf","shadeColor":"#969783","lineColor":"#666c59"},
+    "memo":{"paperColor":"#fff8df","inkColor":"#5c624d","stoneColor":"#969783"},
     "tower": {
       "bodyColor":"#8d9482","detailColor":"#555f50",
       "body":[{"x":-9,"y":0},{"x":9,"y":0},{"x":7,"y":-56},{"x":-7,"y":-56}]

@@ -18,7 +18,9 @@
       rock:{faceColor:'#a5aaa0',shadeColor:'#8c998e',lineColor:'#808b80',shapes:[[{x:-13,y:0},{x:-9,y:-15},{x:3,y:-23},{x:15,y:-10},{x:12,y:3}],[{x:3,y:-23},{x:15,y:-10},{x:12,y:3},{x:0,y:-4}]]},
       mine:{shadeColor:'#98774e'},
       city:{bodyColor:'#d6c4a2',roofColor:'#9a7761',doorColor:'#77654f',body:[{x:-20,y:0},{x:20,y:0},{x:20,y:-22},{x:-20,y:-22}],roof:[{x:-24,y:-22},{x:0,y:-40},{x:24,y:-22}]},
-      tower:{bodyColor:'#8d9482',detailColor:'#555f50',body:[{x:-9,y:0},{x:9,y:0},{x:7,y:-56},{x:-7,y:-56}]}
+      tower:{bodyColor:'#8d9482',detailColor:'#555f50',body:[{x:-9,y:0},{x:9,y:0},{x:7,y:-56},{x:-7,y:-56}]},
+      stone_arch:{baseColor:'#a3a592',faceColor:'#d3ccaf',shadeColor:'#969783',lineColor:'#666c59'},
+      memo:{paperColor:'#fff8df',inkColor:'#5c624d',stoneColor:'#969783'}
     },
     lines:{hidden:'#eeeade16',edge:'#657d4b22',eligible:'#75856b',detail:'#70864e88',outline:'48, 65, 40'},
     shadows:{ground:'#62634c12',object:'#455e3f21'},

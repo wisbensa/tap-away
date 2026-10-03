@@ -46,9 +46,27 @@ header span { color: var(--tap-text-color); }
 header .development-status { font-size: 10px; letter-spacing: 0; }
 button { color: var(--tap-text-color); font-weight: 600; }
 #start-screen, dialog { color: var(--tap-text-color); }
-footer { z-index: 3; display: flex; justify-content: center; }
+footer { z-index: 3; display: flex; flex-direction:column; align-items:center; gap:8px; justify-content: center; }
 #notice { min-height: 0; max-width: 560px; padding: 14px 20px; border: 1px solid var(--tap-border-color); border-radius: 14px; background: var(--tap-notice-surface-color); color: var(--tap-notice-text-color); font-size: 14px; font-weight: 600; line-height: 1.8; box-shadow: 0 6px 22px #15251a40; }
 #notice:empty { padding: 0; border: 0; box-shadow: none; }
+#memo-review { align-self:flex-start; margin-left:max(0px,env(safe-area-inset-left)); }
+#memo-panel { position:absolute; top:140px; left:max(16px,env(safe-area-inset-left)); z-index:3; width:min(290px,calc(100% - 32px)); padding:16px 18px; border:1px solid var(--tap-border-color); border-radius:14px; color:var(--tap-text-color); background:var(--tap-surface-color); box-shadow:0 4px 18px #15251a30; pointer-events:none; }
+#memo-panel h2 { margin:4px 0 6px; font-size:14px; }
+#memo-close { float:right; margin:-6px -8px 0 0; }
+#memo-picture { width:180px; height:100px; max-width:100%; cursor:inherit; }
+#memo-hint { white-space:pre-line; font-size:13px; line-height:1.7; margin:6px 0; }
+#memo-context { font-size:13px; line-height:1.7; margin:8px 0 0; }
+@media (max-width:600px) and (max-height:650px) {
+  #memo-panel { padding:10px 14px; }
+  #memo-picture { width:108px; height:60px; float:left; margin-right:8px; }
+  #memo-context { clear:both; margin-top:4px; }
+}
+@media (max-height:500px) {
+  #memo-panel { top:108px; padding:8px 14px; width:280px; }
+  #memo-picture { width:108px; height:60px; float:left; margin-right:8px; }
+  #memo-panel h2 { margin:0 0 4px; }
+  #memo-context { clear:both; margin-top:4px; }
+}
 @media (max-width: 600px) {
  header > div:first-child { padding: 8px 10px; }
  #points { padding: 10px 6px; }

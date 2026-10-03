@@ -1,6 +1,6 @@
 (() => {
   "use strict";
-  // Initial Phase 1B tuning; final touch feel is checked on real devices.
+  // Initial visual tuning; final touch feel and exploration are checked on real devices.
   const CONFIG = { tileWidth: 76, tileHeight: 72, heightScale: 15,
     minZoom: .12, minTapZoom: .25, initialMinZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 400,
     sinkMs: 65, contactMs: 35, contactStrength: .15, reboundAtMs: 230, reboundStrength: .12,
@@ -10,7 +10,7 @@
     completionMs: 420, completionRevealMs: 300, completionEdgeMs: 360,
     waveRadius: 2, waveDelayMs: 75, waveMs: 230, waveOpacity: .5,
     enclosureStartMs: 180, enclosureStepMs: 150, enclosureFadeMs: 150, maxOpenings: 64,
-    towerRingMs: 80, towerFadeMs: 120 };
+    towerRingMs: 80, towerFadeMs: 120, memoDisplayMs: 7000, memoMinPixels: 7 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
@@ -20,7 +20,8 @@
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
   const SAVE_KEY='tap-away.world.v1';
-  let world,saveBlocked=false,saveTimer=0,toastTimer=0,started=false,needsInitialSave=false,legacyReset=false;
+  let world,saveBlocked=false,saveTimer=0,toastTimer=0,memoTimer=0,started=false,needsInitialSave=false,legacyReset=false;
+  const memoPanel=document.querySelector('#memo-panel'), memoReview=document.querySelector('#memo-review');
   const SAVE_LOAD_ERROR = "セーブを読み込めません。元データを保持しています。この回の進行は保存されません。";
   function toast(message) {
     notice.textContent = message;
@@ -34,8 +35,8 @@
       const seed = seedText !== null && /^\d+$/.test(seedText) && Number(seedText) <= 0xffffffff ? Number(seedText) : undefined;
       const previous = raw === null ? null : JSON.parse(raw);
       const loaded = raw === null ? TapWorld.create(Date.now(), seed) : TapWorld.migrate(previous, Date.now(), seed);
-      legacyReset = raw !== null && previous.saveVersion < loaded.saveVersion;
-      needsInitialSave = raw === null || legacyReset;
+      legacyReset = raw !== null && previous.saveVersion < 3;
+      needsInitialSave = raw === null || previous.saveVersion < loaded.saveVersion;
       TapWorld.settle(loaded);
       return loaded;
     } catch {
@@ -67,6 +68,7 @@
   }
   function updateHud() {
     document.querySelector('#points').textContent = '探索 ' + Math.floor(world.points) + ' / ' + TapWorld.RULES.maxPoints;
+    memoReview.hidden = !started || world.memo.status !== 'collected';
   }
   document.querySelector('#start').textContent=world.introduced?"つづきから":"はじめる";
   function startGame() {
@@ -82,6 +84,29 @@
     requestDraw();
   }
   document.querySelector('#start').addEventListener('click', startGame);
+  function memoHint(monument) {
+    const clue=world.memo.clue, dx=monument.x-clue.x, dy=monument.y-clue.y;
+    const direction=(dy<0?'北':dy>0?'南':'')+(dx<0?'西':dx>0?'東':'');
+    return (direction || 'この近く')+'に、大きな石のアーチがある。\n地図の位置：'+monument.x+' / '+monument.y;
+  }
+  function closeMemo() { clearTimeout(memoTimer); memoPanel.hidden=true; requestDraw(); }
+  function showMemo(alreadyReached=false) {
+    const monument=world.monuments.find(m=>m.id===world.memo.monumentId);
+    if(world.memo.status!=='collected'||!monument) return;
+    document.querySelector('#memo-hint').textContent=memoHint(monument);
+    document.querySelector('#memo-context').textContent=alreadyReached || TapWorld.monumentStatus(world,monument).reached?
+      'この場所は、もう見つけていた。':'★の先に、描かれた場所がある。';
+    const picture=document.querySelector('#memo-picture'), pen=picture.getContext('2d'), skin=TapSkin.current;
+    pen.clearRect(0,0,picture.width,picture.height);
+    pen.strokeStyle=skin.objects.memo.inkColor;pen.lineWidth=2;pen.lineJoin='round';
+    pen.beginPath();pen.moveTo(22,86);pen.lineTo(22,59);pen.bezierCurveTo(22,8,158,8,158,59);pen.lineTo(158,86);
+    pen.lineTo(128,86);pen.lineTo(128,60);pen.bezierCurveTo(128,36,52,36,52,60);pen.lineTo(52,86);pen.closePath();pen.stroke();
+    pen.beginPath();pen.moveTo(12,91);pen.lineTo(171,91);pen.moveTo(91,25);pen.lineTo(91,42);
+    pen.moveTo(35,43);pen.lineTo(59,52);pen.moveTo(145,43);pen.lineTo(121,52);pen.stroke();
+    memoPanel.hidden=false;clearTimeout(memoTimer);memoTimer=setTimeout(closeMemo,CONFIG.memoDisplayMs);requestDraw();
+  }
+  document.querySelector('#memo-close').addEventListener('click',closeMemo);
+  memoReview.addEventListener('click',()=>showMemo());
   const devButton=document.querySelector('#dev-reset');
   devButton.addEventListener('click',()=>{if(!confirm("Tap Awayの進行を初期状態に戻しますか？"))return;try{clearTimeout(saveTimer);localStorage.removeItem(SAVE_KEY);saveBlocked=true;location.reload();}catch{toast("セーブを削除できませんでした。");}});
   const notes=document.querySelector('#release-dialog');
@@ -139,6 +164,7 @@
   setInterval(()=>{if(!document.hidden&&started)queueSave();},15000);
   tiles.sort((a, b) => a.y - b.y || a.x - b.x);
   const tilesByCoordinate=TapWorld.index(world);
+  const monumentsByCoordinate=new Map(world.monuments.flatMap(monument=>monument.occupied.map(p=>[p.x+','+p.y,monument])));
   function project(x, y, z = 0) {
     return { x: width / 2 + camera.x + x * CONFIG.tileWidth * camera.zoom,
       y: height * .48 + camera.y + (y * CONFIG.tileHeight - z) * camera.zoom };
@@ -262,6 +288,15 @@
       points.push({x:base.x-asset.anchorX*camera.zoom,y:base.y-asset.anchorY*camera.zoom},
         {x:base.x+(asset.width-asset.anchorX)*camera.zoom,y:base.y+(asset.height-asset.anchorY)*camera.zoom});
     }
+    if(tile.visibility==='opened'&&monumentsByCoordinate.has(tile.x+','+tile.y)) {
+      points.push(...pts.map(p=>({x:p.x,y:p.y-120*camera.zoom})));
+      const monument=monumentsByCoordinate.get(tile.x+','+tile.y),bitmap=skin.assets.stone_arch;
+      if(bitmap?.image) {
+        const center=surface(monument.x+.5,monument.y+.5,performance.now());
+        points.push({x:center.x-bitmap.anchorX*camera.zoom,y:center.y-bitmap.anchorY*camera.zoom},
+          {x:center.x+(bitmap.width-bitmap.anchorX)*camera.zoom,y:center.y+(bitmap.height-bitmap.anchorY)*camera.zoom});
+      }
+    }
     return {left:Math.min(...points.map(p=>p.x)),right:Math.max(...points.map(p=>p.x)),top:Math.min(...points.map(p=>p.y)),bottom:Math.max(...points.map(p=>p.y))+17*camera.zoom};
   }
   function pick(p) {
@@ -302,6 +337,9 @@
       }
       polygon(pts, tileColor(tile, now), visibility==='hidden'?skin.lines.hidden:skin.lines.edge);
       remember(pts);
+      if(visibility==='opened' && monumentsByCoordinate.has(x+','+y)) {
+        drawMonumentPart(tile,base,now);continue;
+      }
       if(tile.x===0&&tile.y===0 || tile.landmark==='tower'&&(visibility==='opened'||world.destination?.x===tile.x&&world.destination?.y===tile.y)) {
         const object=tile.x===0&&tile.y===0?skin.objects.city:skin.objects.tower;
         if(visibility==='opened'&&drawAsset(tile.x===0&&tile.y===0?'city':'tower',base)) continue;
@@ -351,6 +389,7 @@
     for(const opening of openings.values()) if(!opening.automatic)
       drawOpeningCover(opening.tile,corners(opening.tile,now),surface(opening.tile.x+.5,opening.tile.y+.5,now),now);
     drawCompletionEdges(now);
+    drawMemoClue(now);
     drawDestination(now);
     // Keep eligible ground readable beneath tall decorative objects.
     for (const tile of tiles) {
@@ -372,6 +411,80 @@
       ctx.stroke();
     }
     if (pulses.length || towerReveals.size || openings.size || held) requestDraw();
+  }
+  function drawMonumentPart(tile,base,now) {
+    const monument=monumentsByCoordinate.get(tile.x+','+tile.y);
+    if(!monument || tile.visibility!=='opened') return;
+    const object=TapSkin.current.objects.stone_arch, z=camera.zoom;
+    const turn=(u,v)=> {
+      for(let i=0;i<monument.orientation;i++) [u,v]=[-v,u];
+      return {x:monument.x+.5+u,y:monument.y+.5+v};
+    };
+    let u=tile.x-monument.x,v=tile.y-monument.y;
+    for(let i=0;i<monument.orientation;i++) [u,v]=[v,-u];
+    const point=(a,b,h=0)=>{
+      const p=turn(a,b);
+      return project(p.x,p.y,heightAt(p.x,p.y)*CONFIG.heightScale+h-displacement(tile.x+.5,tile.y+.5,now));
+    };
+    const opening=openings.get(tile.x+','+tile.y);
+    ctx.save();
+    if(opening) ctx.globalAlpha=completionReveal(opening,now);
+    polygon([point(u-.46,v-.46,3),point(u+.46,v-.46,3),point(u+.46,v+.46,3),point(u-.46,v+.46,3)],object.baseColor,object.lineColor);
+    // Each saved occupied tile owns one slice. No unopened slice is painted.
+    const asset=TapSkin.current.assets.stone_arch;
+    if(asset?.image) {
+      const center=surface(monument.x+.5,monument.y+.5,now);
+      const left=center.x-asset.anchorX*z,top=center.y-asset.anchorY*z;
+      const column=tile.x-monument.x+1,row=tile.y-monument.y+1;
+      ctx.beginPath();ctx.rect(left+column*asset.width*z/3,top+row*asset.height*z/3,asset.width*z/3,asset.height*z/3);ctx.clip();
+      drawAsset('stone_arch',center,ctx.globalAlpha);ctx.restore();return;
+    }
+    const lo=u-.5,hi=u+.5,outer=a=>20+96*Math.sqrt(Math.max(0,1-(a/1.48)**2));
+    const inner=a=>Math.abs(a)<.96?13+62*Math.sqrt(Math.max(0,1-(a/.96)**2)):3;
+    const top=[];
+    for(let i=0;i<=12;i++) {const a=lo+(hi-lo)*i/12;top.push(point(a,v+.5,outer(a)));}
+    const rear=[];
+    for(let i=12;i>=0;i--) {const a=lo+(hi-lo)*i/12;rear.push(point(a,v-.5,outer(a)));}
+    // The rows extend one roof; its near end owns the visible arch face.
+    // This makes a single deep structure as its nine ground slices are uncovered.
+    polygon([...top,...rear],object.shadeColor,object.lineColor);
+    if(u!==0) {
+      const side=u<0?lo:hi;
+      polygon([point(side,v-.5,3),point(side,v+.5,3),point(side,v+.5,outer(side)),point(side,v-.5,outer(side))],object.shadeColor,object.lineColor);
+    }
+    const frontFace=monument.orientation===0&&v===1 || monument.orientation===2&&v===-1;
+    if(frontFace) {
+      const faceTop=[],faceBottom=[],edge=v+Math.sign(v)*.5;
+      for(let i=0;i<=12;i++) {const a=lo+(hi-lo)*i/12;faceTop.push(point(a,edge,outer(a)));faceBottom.unshift(point(a,edge,inner(a)));}
+      polygon([...faceTop,...faceBottom],object.faceColor,object.lineColor);
+    }
+    ctx.strokeStyle=object.lineColor;ctx.lineWidth=Math.max(.8,z);
+    ctx.beginPath();
+    for(const a of [lo+(hi-lo)*.32,lo+(hi-lo)*.7]) {
+      const edge=frontFace?v+Math.sign(v)*.5:v+.5;
+      const from=point(a,frontFace?edge:v-.5,frontFace?inner(a):outer(a)),to=point(a,edge,outer(a));
+      ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);
+    }
+    ctx.stroke();ctx.restore();
+  }
+  function drawMemoClue(now) {
+    if(world.memo.status!=='placed') return;
+    const clue=world.memo.clue,tile=tilesByCoordinate.get(clue.x+','+clue.y);
+    if(tile?.visibility!=='opened') return;
+    const opening=openings.get(clue.x+','+clue.y);
+    const base=surface(clue.x+.5,clue.y+.5,now);
+    if(base.x<0||base.x>width||base.y<0||base.y>height) return;
+    const detail=camera.zoom>=TapWorld.RULES.memoDiscoverZoom,object=TapSkin.current.objects.memo;
+    ctx.save();ctx.translate(base.x+CONFIG.tileWidth*camera.zoom*.2,base.y+CONFIG.tileHeight*camera.zoom*.18);
+    const scale=Math.max(camera.zoom,CONFIG.memoMinPixels/10);ctx.scale(scale,scale);
+    if(opening)ctx.globalAlpha=completionReveal(opening,now);
+    polygon([{x:-8,y:2},{x:-3,y:-1},{x:2,y:2},{x:0,y:5},{x:-7,y:5}],object.stoneColor);
+    polygon([{x:-5,y:-7},{x:5,y:-8},{x:6,y:1},{x:-4,y:2}],object.paperColor,object.inkColor);
+    if(detail) {
+      ctx.strokeStyle=object.inkColor;ctx.lineWidth=.6;ctx.beginPath();ctx.moveTo(2,-7);ctx.lineTo(2,-4);ctx.lineTo(5,-4);
+      ctx.moveTo(-2,-3);ctx.lineTo(1,-3);ctx.moveTo(-2,-1);ctx.lineTo(3,-1);ctx.stroke();
+    }
+    ctx.restore();
   }
   function drawOpeningCover(tile,pts,base,now) {
     const opening=openings.get(tile.x+','+tile.y);
@@ -430,7 +543,17 @@
     const headerBottom=document.querySelector('header').getBoundingClientRect().bottom;
     const footerTop=document.querySelector('footer').getBoundingClientRect().top;
     const top=Math.min(headerBottom+margin,height/2),bottom=Math.max(top,Math.min(height,footerTop)-margin);
-    const x=clamp(target.x,margin,width-margin),y=clamp(target.y,top,bottom);
+    let x=clamp(target.x,margin,width-margin),y=clamp(target.y,top,bottom);
+    if(!memoPanel.hidden) {
+      const rect=memoPanel.getBoundingClientRect();
+      const overlaps=(a,b)=>a>rect.left-margin&&a<rect.right+margin&&b>rect.top-margin&&b<rect.bottom+margin;
+      if(overlaps(x,y)) {
+        const candidates=[[rect.right+margin,y],[rect.left-margin,y],[x,rect.bottom+margin],[x,rect.top-margin]]
+          .map(([a,b])=>({x:clamp(a,margin,width-margin),y:clamp(b,top,bottom)}))
+          .filter(p=>!overlaps(p.x,p.y)).sort((a,b)=>(a.x-x)**2+(a.y-y)**2-((b.x-x)**2+(b.y-y)**2));
+        if(candidates.length) ({x,y}=candidates[0]);
+      }
+    }
     const offscreen=x!==target.x||y!==target.y;
     ctx.save();
     const ui=TapSkin.current.ui;
@@ -505,7 +628,10 @@
     if(commit){
       const hidden=held.tile.landmark==='tower'?world.tiles.filter(tile=>tile.visibility==='hidden'):[];
       const now=performance.now(), start=reaction(held,now), velocity=(reaction(held,now+.1)-start)/.1, progress=held.tile.developmentProgress;
-      const result=held.tile.visibility==='opened'?'touch':!canDevelop(held.tile)?'blocked':TapWorld.develop(world,held.tile,Date.now(),completion=>animateCompletion(completion,now,progress));
+      let completion=null,memo=null;
+      const result=held.tile.visibility==='opened'?
+        ((memo=TapWorld.collectMemo(world,held.tile,camera.zoom))?'memo':'touch'):
+        !canDevelop(held.tile)?'blocked':TapWorld.develop(world,held.tile,Date.now(),entry=>{completion=entry;animateCompletion(entry,now,progress);});
       const kind=result==='blocked'||result==='empty'?'blocked':result==='opened'||result==='tower'?'complete':'normal';
       if(result!=='blocked'&&result!=='empty')towerReveals.delete(held.tile.x+','+held.tile.y);
       if(result==='tower') {
@@ -513,10 +639,15 @@
           const distance=Math.max(Math.abs(tile.x-held.tile.x),Math.abs(tile.y-held.tile.y));
           towerReveals.set(tile.x+','+tile.y,{at:now+distance*CONFIG.towerRingMs});
         }
-        toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');
+        const destinationMonument=world.monuments.some(m=>world.destination?.x===m.x&&world.destination?.y===m.y);
+        toast(destinationMonument?'古い塔から視界が広がりました。★の石のアーチへ進んでみましょう。':
+          world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');
       }
-      if(result==='opened'||result==='tower')save();
+      if(completion?.monumentReached)toast('大きな石のアーチを見つけました。周りの土地を開くと、全体が見えてきます。');
+      if(completion?.monumentRevealed)toast('石のアーチの全体が姿を現しました。地図は、まだ広げていけます。');
+      if(result==='opened'||result==='tower'||result==='memo')save();
       else if(result==='progress')queueSave();
+      if(memo)showMemo(memo.alreadyReached);
       updateHud();pulses.push({...held,kind,start,velocity,at:now});
     }
     const blocked=commit?pulses[pulses.length-1].kind==='blocked':held.kind==='blocked';

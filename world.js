@@ -7,6 +7,7 @@
     costs: {grass: 4, tree: 7, rock: 10, mine: 15},
     // These are initial placement/balance values, not additional gameplay rules.
     monumentMinDistance: 16, monumentMaxDistance: 24, monumentProtectionWidth: 1,
+    memoOpenedThreshold: 24, memoDiscoverZoom: 1.55,
     sceneryTypes: SCENERY_TYPES, sceneryPerType: 6, sceneryMinDistance: 6, scenerySpecialMargin: 3,
     terrainBands: [
       {distance: 5, grass: .83, tree: .152, rock: .017},
@@ -148,7 +149,7 @@
     if (!finite(now) || !isSeed(seed)) throw Error('Invalid generation input');
     const tiles = [];
     for (let y = -RULES.extent; y <= RULES.extent; y++) for (let x = -RULES.extent; x <= RULES.extent; x++) tiles.push(generateTile(seed, x, y));
-    const w = {saveVersion: 3, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
+    const w = {saveVersion: 4, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
       seed, generatorVersion: 2, points: RULES.maxPoints, resources: {wood: 0, rock: 0, metal: 0},
       facilities: {inn: 0, well: 0, workshop: 0}, destination: null, introduced: false, tiles, monuments: [], scenery: []};
     const m = index(w);
@@ -156,6 +157,7 @@
     placeRoads(w, m);
     placeMonument(w);
     placeScenery(w);
+    w.memo = {status: 'waiting', clue: null, monumentId: w.monuments[0].id};
     chooseDestination(w);
     return validate(w);
   }
@@ -176,7 +178,6 @@
     neighbors(t, m).forEach(n => {if (n.visibility === 'hidden') n.visibility = 'preview';});
     if (t.landmark === 'tower' && !t.effectApplied) {
       applyTowerEffect(w, t);
-      chooseDestination(w);
     }
     // Opened terrain is the production source; production starts in Phase 2.
   }
@@ -205,20 +206,54 @@
   function develop(w, t, now = Date.now(), onComplete) {
     settle(w, now);
     const m = index(w);
+    if (m.get(key(t.x, t.y)) !== t) return 'blocked';
     if (!eligible(t, m)) return 'blocked';
     if (w.points < 1) return 'empty';
+    // Check the pre-tap state: the opening that first meets the threshold cannot
+    // place the clue, and automatic openings only qualify a later manual tap.
+    const memoReady = w.memo.status === 'waiting' && w.tiles.some(tile => tile.towerOrder === 0 && tile.effectApplied) &&
+      w.tiles.filter(tile => tile.visibility === 'opened').length >= RULES.memoOpenedThreshold;
     w.points--;
     t.developmentProgress = Math.min(t.requiredCost, t.developmentProgress + 1);
     if (t.developmentProgress < t.requiredCost) return 'progress';
+    const previousMonuments = w.monuments.map(monument => ({monument, ...monumentStatus(w, monument, m)}));
     completeTile(w, t, m);
     // Gather every result before opening anything: automatic openings cannot chain.
     const regions = enclosedRegions(w, t, m);
     const automatic = regions.flat().map(tile => ({tile, visibility:tile.visibility, progress:tile.developmentProgress}));
     for (const entry of automatic) completeTile(w, entry.tile, m);
-    if (onComplete) onComplete({tile:t, regions, automatic});
+    const memoPlaced = memoReady && ordinaryMemoTile(w, t);
+    if (memoPlaced) {w.memo.status = 'placed'; w.memo.clue = {x: t.x, y: t.y};}
+    const monumentReached = previousMonuments.find(p => !p.reached && monumentStatus(w, p.monument, m).reached)?.monument || null;
+    const monumentRevealed = previousMonuments.find(p => !p.fullyRevealed && monumentStatus(w, p.monument, m).fullyRevealed)?.monument || null;
+    if (t.landmark === 'tower' || monumentReached && w.memo.status === 'collected' && w.memo.monumentId === monumentReached.id) chooseDestination(w);
+    if (onComplete) onComplete({tile:t, regions, automatic, memoPlaced, monumentReached, monumentRevealed});
     return t.landmark === 'tower' ? 'tower' : 'opened';
   }
+  function monumentStatus(w, monument, m = index(w)) {
+    const opened = monument.occupied.filter(p => m.get(key(p.x, p.y))?.visibility === 'opened').length;
+    return {opened, total: monument.occupied.length, reached: opened > 0, fullyRevealed: opened === monument.occupied.length};
+  }
+  function ordinaryMemoTile(w, t) {
+    return t.landmark === null && !(t.x === 0 && t.y === 0) &&
+      !w.monuments.some(monument => monument.occupied.some(p => p.x === t.x && p.y === t.y)) &&
+      !w.scenery.some(object => object.x === t.x && object.y === t.y);
+  }
+  function collectMemo(w, t, zoom) {
+    if (!finite(zoom) || zoom < RULES.memoDiscoverZoom || w.memo.status !== 'placed' || !t ||
+      t.x !== w.memo.clue.x || t.y !== w.memo.clue.y || t.visibility !== 'opened' || index(w).get(key(t.x, t.y)) !== t) return null;
+    const monument = w.monuments.find(object => object.id === w.memo.monumentId);
+    const alreadyReached = monumentStatus(w, monument).reached;
+    w.memo.status = 'collected';
+    // A note about a place already reached must not replace another destination.
+    if (!alreadyReached) chooseDestination(w);
+    return {monument, alreadyReached};
+  }
   function chooseDestination(w) {
+    if (w.memo?.status === 'collected') {
+      const monument = w.monuments.find(object => object.id === w.memo.monumentId);
+      if (monument && !monumentStatus(w, monument).reached) {w.destination = {x: monument.x, y: monument.y}; return;}
+    }
     const remaining = w.tiles.filter(t => t.landmark === 'tower' && !t.effectApplied).sort((a, b) => a.towerOrder - b.towerOrder);
     w.destination = remaining.length ? {x: remaining[0].x, y: remaining[0].y} : null;
   }
@@ -233,9 +268,9 @@
     }
     return protectedKeys;
   }
-  function validate(w) {
+  function validateWorld(w, saveVersion) {
     const fail = () => {throw Error('Invalid save data');};
-    if (!w || w.saveVersion !== 3 || w.worldVersion !== 1 || w.phase !== 1 || w.generatorVersion !== 2 || !isSeed(w.seed) || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > RULES.maxPoints || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
+    if (!w || w.saveVersion !== saveVersion || w.worldVersion !== 1 || w.phase !== 1 || w.generatorVersion !== 2 || !isSeed(w.seed) || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > RULES.maxPoints || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
     const expectedBounds = bounds();
     if (!w.bounds || Object.keys(expectedBounds).some(k => w.bounds[k] !== expectedBounds[k])) fail();
     const seen = new Set(), ids = new Set(), towers = [], landmarks = [], occupied = new Set();
@@ -255,8 +290,6 @@
     }
     const m = index(w), city = m.get('0,0');
     if (!city || city.visibility !== 'opened' || city.kind !== 'grass' || city.landmark !== null || towers.length !== 5 || new Set(towers.map(t => t.towerOrder)).size !== 5 || landmarks.filter(t => t.landmark === 'spring').length !== 1 || landmarks.filter(t => t.landmark === 'ruins').length !== 1) fail();
-    if (w.destination !== null && (!coordinate(w.destination) || m.get(key(w.destination.x, w.destination.y))?.landmark !== 'tower' || m.get(key(w.destination.x, w.destination.y)).effectApplied)) fail();
-    if (w.destination === null && towers.some(t => !t.effectApplied)) fail();
     if (!Array.isArray(w.monuments) || w.monuments.length !== 1) fail();
     for (const monument of w.monuments) {
       if (!coordinate(monument) || monument.type !== 'stone_arch' || !orientation(monument.orientation) || !Array.isArray(monument.occupied) || monument.occupied.length !== 9) fail();
@@ -275,11 +308,30 @@
       counts.set(object.type, counts.get(object.type) + 1);
     }
     if ([...counts.values()].some(n => n !== RULES.sceneryPerType)) fail();
+    let target = null;
+    if (saveVersion === 4) {
+      if (!w.memo || Array.isArray(w.memo) || !['waiting', 'placed', 'collected'].includes(w.memo.status) ||
+        !w.monuments.some(monument => monument.id === w.memo.monumentId)) fail();
+      if (w.memo.status === 'waiting') {if (w.memo.clue !== null) fail();}
+      else if (!coordinate(w.memo.clue) || m.get(key(w.memo.clue.x, w.memo.clue.y)).visibility !== 'opened' ||
+        !ordinaryMemoTile(w, m.get(key(w.memo.clue.x, w.memo.clue.y))) || !towers.some(t => t.towerOrder === 0 && t.effectApplied)) fail();
+      if (w.memo.status === 'collected') {
+        const monument = w.monuments.find(object => object.id === w.memo.monumentId);
+        if (!monumentStatus(w, monument, m).reached) target = monument;
+      }
+    }
+    if (target) {
+      if (!coordinate(w.destination) || w.destination.x !== target.x || w.destination.y !== target.y) fail();
+    } else {
+      if (w.destination !== null && (!coordinate(w.destination) || m.get(key(w.destination.x, w.destination.y))?.landmark !== 'tower' || m.get(key(w.destination.x, w.destination.y)).effectApplied)) fail();
+      if (w.destination === null && towers.some(t => !t.effectApplied)) fail();
+    }
     for (const k of ['wood', 'rock', 'metal']) if (!finite(w.resources?.[k]) || w.resources[k] < 0) fail();
     for (const k of ['inn', 'well', 'workshop']) if (w.facilities?.[k] !== 0) fail();
     // Saved terrain/costs are authoritative; validation never invokes the generator.
     return w;
   }
+  function validate(w) {return validateWorld(w, 4);}
   function validateLegacy(w) {
     const fail = () => {throw Error('Invalid legacy save data');};
     if (!w || ![1, 2].includes(w.saveVersion) || w.worldVersion !== 1 || w.phase !== 1 || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > 1000 || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
@@ -301,11 +353,19 @@
     return w;
   }
   function migrate(w, now = Date.now(), seed) {
-    if (w?.saveVersion === 3) return validate(w);
+    if (w?.saveVersion === 4) return validate(w);
+    if (w?.saveVersion === 3) {
+      validateWorld(w, 3);
+      // Only the new event state is added; all saved land and reservations stay authoritative.
+      const migrated = JSON.parse(JSON.stringify(w));
+      migrated.saveVersion = 4;
+      migrated.memo = {status: 'waiting', clue: null, monumentId: migrated.monuments[0].id};
+      return validate(migrated);
+    }
     validateLegacy(w);
     // The specification authorizes this one fixed-map transition to start a new world.
     // Invalid/unknown saves never reach create(), and the input is never modified.
     return create(now, seed);
   }
-  globalThis.TapWorld = {RULES, create, generateTile, index, eligible, settle, develop, validate, migrate, protectedMonumentCoordinates};
+  globalThis.TapWorld = {RULES, create, generateTile, index, eligible, settle, develop, collectMemo, monumentStatus, validate, migrate, protectedMonumentCoordinates};
 })();
