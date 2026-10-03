@@ -10,7 +10,9 @@
     completionMs: 420, completionRevealMs: 300, completionEdgeMs: 360,
     waveRadius: 2, waveDelayMs: 75, waveMs: 230, waveOpacity: .5,
     enclosureStartMs: 180, enclosureStepMs: 150, enclosureFadeMs: 150, maxOpenings: 64,
-    towerRingMs: 80, towerFadeMs: 120, memoDisplayMs: 7000, memoMinPixels: 7,
+    towerRingMs: 80, towerFadeMs: 120, memoDisplayMs: 10000, memoMinPixels: 7,
+    shadowMinMs:90000, shadowMaxMs:180000, shadowMs:4200, shadowOpacity:.14,
+    smallEventCooldownMs:18000, smallEventChance:.12, smallEventMs:1500,
     markerMargin: 36, markerRadius: 28, markerSpacing: 60 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
@@ -74,6 +76,7 @@
   document.querySelector('#start').textContent=world.introduced?"つづきから":"はじめる";
   function startGame() {
     started = true;
+    resetAtmosphere();
     document.querySelector('#start-screen').hidden = true;
     if (saveBlocked) toast(SAVE_LOAD_ERROR);
     if (!world.introduced && !saveBlocked) {
@@ -95,6 +98,7 @@
     const monument=world.monuments.find(m=>m.id===world.memo.monumentId);
     if(world.memo.status!=='collected'||!monument) return;
     document.querySelector('#memo-hint').textContent=memoHint(monument);
+    document.querySelector('#memo-aside').textContent=TapWorld.memoAside(world);
     document.querySelector('#memo-context').textContent=alreadyReached || TapWorld.monumentStatus(world,monument).reached?
       'この場所は、もう見つけていた。':'★の先に、描かれた場所がある。';
     const picture=document.querySelector('#memo-picture'), pen=picture.getContext('2d'), skin=TapSkin.current;
@@ -161,11 +165,86 @@
   skinChoice.addEventListener('change',()=>switchSkin(skinChoice.value || null));
   document.querySelector('#skin-default').addEventListener('click',()=>switchSkin(null));
   const skinReady = TapSkin.load().then(()=>{syncSkinChoice();requestDraw();});
-  setInterval(()=>{if(!document.hidden&&started){TapWorld.settle(world);updateHud();}},1000);
+  setInterval(()=>{if(!document.hidden&&started){TapWorld.settle(world);updateHud();tickAtmosphere(performance.now());}},1000);
   setInterval(()=>{if(!document.hidden&&started)queueSave();},15000);
   tiles.sort((a, b) => a.y - b.y || a.x - b.x);
   const tilesByCoordinate=TapWorld.index(world);
   const monumentsByCoordinate=new Map(world.monuments.flatMap(monument=>monument.occupied.map(p=>[p.x+','+p.y,monument])));
+  const sceneryByCoordinate=new Map(world.scenery.map(object=>[object.x+','+object.y,object]));
+  const atmosphere={shadow:null,small:null,nextShadow:0,nextSmall:0};
+  function resetAtmosphere(now=performance.now()) {
+    atmosphere.shadow=null;atmosphere.small=null;
+    atmosphere.nextShadow=now+CONFIG.shadowMinMs+Math.random()*(CONFIG.shadowMaxMs-CONFIG.shadowMinMs);
+    atmosphere.nextSmall=now+CONFIG.smallEventCooldownMs;
+  }
+  function tickAtmosphere(now) {
+    if(!started||document.hidden) return;
+    if(!atmosphere.nextShadow) resetAtmosphere(now);
+    if(now>=atmosphere.nextShadow) {
+      atmosphere.shadow={at:now,reverse:Math.random()<.5};
+      atmosphere.nextShadow=now+CONFIG.shadowMinMs+Math.random()*(CONFIG.shadowMaxMs-CONFIG.shadowMinMs);
+      requestDraw();
+    }
+  }
+  function smallEvent(tile,now) {
+    if(!started||document.hidden||tile.visibility!=='opened'||tile.landmark||tile.x===0&&tile.y===0||
+      !['grass','tree'].includes(tile.kind)||monumentsByCoordinate.has(tile.x+','+tile.y)||
+      sceneryByCoordinate.has(tile.x+','+tile.y)||now<atmosphere.nextSmall) return;
+    atmosphere.nextSmall=now+CONFIG.smallEventCooldownMs;
+    if(Math.random()<CONFIG.smallEventChance) atmosphere.small={tile,at:now,kind:tile.kind==='tree'?'leaves':'birds'};
+  }
+  function shadowGeometry(shadow,now) {
+    const progress=clamp((now-shadow.at)/CONFIG.shadowMs,0,1);
+    const spanX=Math.max(width,height)*.58,spanY=spanX*.32,travel=width+spanX*2;
+    return {x:shadow.reverse?width+spanX-travel*progress:-spanX+travel*progress,
+      y:height*(.32+.3*progress),spanX,spanY,progress};
+  }
+  function drawAtmosphere(now) {
+    if(!started||document.hidden) return;
+    const shadow=atmosphere.shadow, small=atmosphere.small;
+    if(shadow) {
+      const t=(now-shadow.at)/CONFIG.shadowMs;
+      if(t>=1) atmosphere.shadow=null;
+      else {
+        const shape=shadowGeometry(shadow,now);
+        ctx.save();ctx.translate(shape.x,shape.y);ctx.scale(shape.spanX,shape.spanY);
+        ctx.fillStyle=TapSkin.current.objects.atmosphere.shadowColor;ctx.globalAlpha=CONFIG.shadowOpacity;
+        // Only an uneven passing mass is visible; it has no identifiable owner.
+        const outline=TapSkin.current.objects.atmosphere.shadowShape;
+        ctx.beginPath();ctx.moveTo(outline[0].x,outline[0].y);
+        for(let i=1;i<outline.length;i+=3) {
+          const [a,b,c]=outline.slice(i,i+3);ctx.bezierCurveTo(a.x,a.y,b.x,b.y,c.x,c.y);
+        }
+        ctx.fill();ctx.restore();
+      }
+    }
+    if(small) {
+      const t=(now-small.at)/CONFIG.smallEventMs;
+      if(t>=1) atmosphere.small=null;
+      else {
+        const p=surface(small.tile.x+.5,small.tile.y+.5,now),z=camera.zoom;
+        ctx.save();ctx.translate(p.x,p.y);ctx.scale(z,z);ctx.globalAlpha=Math.sin(Math.PI*t)*.7;
+        ctx.strokeStyle=TapSkin.current.objects.atmosphere.detailColor;ctx.lineWidth=1.5;
+        const outline=TapSkin.current.objects.atmosphere[small.kind==='leaves'?'leafShape':'birdShape'];
+        for(let i=0;i<3;i++) {
+          const x=(i-1)*10+t*22,y=-12-t*35-i*5;
+          ctx.beginPath();outline.forEach((p,index)=>index?ctx.lineTo(x+p.x,y+p.y):ctx.moveTo(x+p.x,y+p.y));ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+  function drawScenery(tile,base,alpha=1) {
+    const object=sceneryByCoordinate.get(tile.x+','+tile.y);
+    if(!object||tile.visibility!=='opened'||alpha<=0) return false;
+    if(drawAsset(object.type,base,alpha)) return true;
+    if(globalThis.TapScenery) {
+      ctx.save();ctx.globalAlpha=alpha;
+      const drawn=TapScenery.draw(ctx,object.type,base.x,base.y,camera.zoom,TapSkin.current);
+      ctx.restore();return drawn;
+    }
+    return false;
+  }
   function project(x, y, z = 0) {
     return { x: width / 2 + camera.x + x * CONFIG.tileWidth * camera.zoom,
       y: height * .48 + camera.y + (y * CONFIG.tileHeight - z) * camera.zoom };
@@ -298,6 +377,13 @@
           {x:center.x+(bitmap.width-bitmap.anchorX)*camera.zoom,y:center.y+(bitmap.height-bitmap.anchorY)*camera.zoom});
       }
     }
+    if(tile.visibility==='opened'&&sceneryByCoordinate.has(tile.x+','+tile.y)) {
+      const type=sceneryByCoordinate.get(tile.x+','+tile.y).type;
+      const visual=globalThis.TapScenery?.bounds(type,skin)||{left:-32,right:32,top:-78,bottom:5};
+      points.push({x:base.x+visual.left*camera.zoom,y:base.y+visual.top*camera.zoom},{x:base.x+visual.right*camera.zoom,y:base.y+visual.bottom*camera.zoom});
+      const asset=skin.assets[type];
+      if(asset?.image) points.push({x:base.x-asset.anchorX*camera.zoom,y:base.y-asset.anchorY*camera.zoom},{x:base.x+(asset.width-asset.anchorX)*camera.zoom,y:base.y+(asset.height-asset.anchorY)*camera.zoom});
+    }
     return {left:Math.min(...points.map(p=>p.x)),right:Math.max(...points.map(p=>p.x)),top:Math.min(...points.map(p=>p.y)),bottom:Math.max(...points.map(p=>p.y))+17*camera.zoom};
   }
   function pick(p) {
@@ -340,6 +426,11 @@
       remember(pts);
       if(visibility==='opened' && monumentsByCoordinate.has(x+','+y)) {
         drawMonumentPart(tile,base,now);continue;
+      }
+      if(visibility==='opened'&&sceneryByCoordinate.has(x+','+y)) {
+        const opening=openings.get(x+','+y);
+        const alpha=opening?ease((now-opening.at)/(opening.automatic?CONFIG.enclosureFadeMs:CONFIG.completionRevealMs)):1;
+        if(drawScenery(tile,base,alpha)) continue;
       }
       if(tile.x===0&&tile.y===0 || tile.landmark==='tower'&&(visibility==='opened'||world.destination?.x===tile.x&&world.destination?.y===tile.y)) {
         const object=tile.x===0&&tile.y===0?skin.objects.city:skin.objects.tower;
@@ -389,6 +480,7 @@
     // Completion stays in the tile plane: the cover retreats from its center.
     for(const opening of openings.values()) if(!opening.automatic)
       drawOpeningCover(opening.tile,corners(opening.tile,now),surface(opening.tile.x+.5,opening.tile.y+.5,now),now);
+    drawAtmosphere(now);
     drawCompletionEdges(now);
     drawMemoClue(now);
     drawDestination(now);
@@ -411,7 +503,7 @@
       ctx.lineJoin = "round";
       ctx.stroke();
     }
-    if (pulses.length || towerReveals.size || openings.size || held) requestDraw();
+    if (pulses.length || towerReveals.size || openings.size || held || atmosphere.shadow || atmosphere.small) requestDraw();
   }
   function drawMonumentPart(tile,base,now) {
     const monument=monumentsByCoordinate.get(tile.x+','+tile.y);
@@ -657,6 +749,7 @@
       if(result==='opened'||result==='tower'||result==='memo')save();
       else if(result==='progress')queueSave();
       if(memo)showMemo(memo.alreadyReached);
+      if(result==='touch'||result==='opened')smallEvent(held.tile,now);
       updateHud();pulses.push({...held,kind,start,velocity,at:now});
     }
     const blocked=commit?pulses[pulses.length-1].kind==='blocked':held.kind==='blocked';
@@ -714,8 +807,9 @@
   for (const name of ["pointerup","pointercancel","lostpointercapture"]) canvas.addEventListener(name,endPointer);
   canvas.addEventListener("wheel", event => { event.preventDefault(); zoomAt(point(event),Math.exp(-clamp(event.deltaY,-120,120)*.002)); },{passive:false});
   window.addEventListener("resize",resize);
-  document.addEventListener("visibilitychange",() => { if (document.hidden) { save(); pointers.clear(); gesture = null; held = null; pulses.length = 0; towerReveals.clear(); openings.clear(); canvas.classList.remove("dragging"); } else { TapWorld.settle(world); updateHud(); queueSave(); } requestDraw(); });
-  window.addEventListener('pagehide',save);
+  document.addEventListener("visibilitychange",() => { resetAtmosphere(); if (document.hidden) { save(); pointers.clear(); gesture = null; held = null; pulses.length = 0; towerReveals.clear(); openings.clear(); canvas.classList.remove("dragging"); } else { TapWorld.settle(world); updateHud(); queueSave(); } requestDraw(); });
+  window.addEventListener('pagehide',()=>{resetAtmosphere();save();});
+  window.addEventListener('pageshow',()=>{resetAtmosphere();requestDraw();});
   updateHud();
   resize();
 })();

@@ -149,7 +149,7 @@
     if (!finite(now) || !isSeed(seed)) throw Error('Invalid generation input');
     const tiles = [];
     for (let y = -RULES.extent; y <= RULES.extent; y++) for (let x = -RULES.extent; x <= RULES.extent; x++) tiles.push(generateTile(seed, x, y));
-    const w = {saveVersion: 5, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
+    const w = {saveVersion: 6, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
       seed, generatorVersion: 2, points: RULES.maxPoints, resources: {wood: 0, rock: 0, metal: 0},
       facilities: {inn: 0, well: 0, workshop: 0}, destination: null, introduced: false, tiles, monuments: [], scenery: []};
     const m = index(w);
@@ -157,7 +157,7 @@
     placeRoads(w, m);
     placeMonument(w);
     placeScenery(w);
-    w.memo = {status: 'waiting', clue: null, monumentId: w.monuments[0].id};
+    w.memo = {status: 'waiting', clue: null, monumentId: w.monuments[0].id, asideId:null};
     chooseDestination(w);
     return validate(w);
   }
@@ -223,7 +223,7 @@
     const automatic = regions.flat().map(tile => ({tile, visibility:tile.visibility, progress:tile.developmentProgress}));
     for (const entry of automatic) completeTile(w, entry.tile, m);
     const memoPlaced = memoReady && ordinaryMemoTile(w, t);
-    if (memoPlaced) {w.memo.status = 'placed'; w.memo.clue = {x: t.x, y: t.y};}
+    if (memoPlaced) {w.memo.status = 'placed'; w.memo.clue = {x: t.x, y: t.y}; w.memo.asideId=chooseMemoAside(w);}
     const monumentReached = previousMonuments.find(p => !p.reached && monumentStatus(w, p.monument, m).reached)?.monument || null;
     const monumentRevealed = previousMonuments.find(p => !p.fullyRevealed && monumentStatus(w, p.monument, m).fullyRevealed)?.monument || null;
     if (t.landmark === 'tower') chooseDestination(w);
@@ -336,7 +336,28 @@
     // Saved terrain/costs are authoritative; validation never invokes the generator.
     return w;
   }
-  function validate(w) {return validateWorld(w, 5);}
+  // Published IDs and their original texts stay fixed; revisions receive new IDs.
+  // Original production references, in order: Kurt Vonnegut, Charles Bukowski,
+  // Richard Brautigan, Kenji Nakagami, Jorge Luis Borges, Kobo Abe.
+  // These references are never labels in the game.
+  const memoAsides = Object.freeze({
+    'planet-1': '星がひとつ消えた。\nここでは石がひとつ倒れた。\nどちらも、昨日のことだ。',
+    'room-1': '寝床にはまだ昼の熱が残っていた。\nくそったれ、外の石のほうがよく眠っている。',
+    'afternoon-1': '午後を三つに折った。\n折り目には、緑の鱒が一匹いた。',
+    'land-1': '土を踏む、また踏む、ここを出た父も戻らなかった父も同じ土を踏んだと、\n誰の声ともつかぬ声が足の底に残っていた。',
+    'index-1': '架空の書物『不在の石目録』では、初版に石の数が記されている。\n第二版は同じ数の空白から成る。編者は訂正と呼んだ。',
+    'form-1': '箱の内側に所有者の名前を書く欄がある。\n記入すると、外にいる者のほうが内容物となる。'
+  });
+  function chooseMemoAside(w) {
+    const ids=Object.keys(memoAsides), p=w.memo.clue, monument=w.monuments.find(m=>m.id===w.memo.monumentId);
+    return ids[hash(w.seed,p.x,p.y,hash(w.seed,monument.x,monument.y,0x631fa927))%ids.length];
+  }
+  function memoAside(w) {return Object.hasOwn(memoAsides, w.memo.asideId) ? memoAsides[w.memo.asideId] : '';}
+  function validate(w) {
+    validateWorld(w, 6);
+    if (w.memo.status === 'waiting' ? w.memo.asideId !== null : typeof w.memo.asideId !== 'string' || !Object.hasOwn(memoAsides, w.memo.asideId)) throw Error('Invalid memo aside');
+    return w;
+  }
   function validateLegacy(w) {
     const fail = () => {throw Error('Invalid legacy save data');};
     if (!w || ![1, 2].includes(w.saveVersion) || w.worldVersion !== 1 || w.phase !== 1 || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > 1000 || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
@@ -358,7 +379,15 @@
     return w;
   }
   function migrate(w, now = Date.now(), seed) {
-    if (w?.saveVersion === 5) return validate(w);
+    if (w?.saveVersion === 6) return validate(w);
+    if (w?.saveVersion === 5) {
+      validateWorld(w,5);
+      const migrated=JSON.parse(JSON.stringify(w));
+      migrated.saveVersion=6;
+      // Fill only absent legacy IDs; loading never places or collects a note.
+      if (!Object.hasOwn(migrated.memo, 'asideId')) migrated.memo.asideId = migrated.memo.status === 'waiting' ? null : chooseMemoAside(migrated);
+      return validate(migrated);
+    }
     if (w?.saveVersion === 4) {
       validateWorld(w, 4);
       const migrated = JSON.parse(JSON.stringify(w));
@@ -366,7 +395,7 @@
       // Version 4 replaced the tower marker with the memo target. Restore only
       // that hidden tower guide; all land, progress and event data remain saved.
       if (migrated.destination && index(migrated).get(key(migrated.destination.x, migrated.destination.y)).landmark !== 'tower') chooseDestination(migrated);
-      return validate(migrated);
+      return migrate(migrated);
     }
     if (w?.saveVersion === 3) {
       validateWorld(w, 3);
@@ -374,12 +403,12 @@
       const migrated = JSON.parse(JSON.stringify(w));
       migrated.saveVersion = 5;
       migrated.memo = {status: 'waiting', clue: null, monumentId: migrated.monuments[0].id};
-      return validate(migrated);
+      return migrate(migrated);
     }
     validateLegacy(w);
     // The specification authorizes this one fixed-map transition to start a new world.
     // Invalid/unknown saves never reach create(), and the input is never modified.
     return create(now, seed);
   }
-  globalThis.TapWorld = {RULES, create, generateTile, index, eligible, settle, develop, collectMemo, monumentStatus, destinations, validate, migrate, protectedMonumentCoordinates};
+  globalThis.TapWorld = {RULES, create, generateTile, index, eligible, settle, develop, collectMemo, monumentStatus, destinations, validate, migrate, protectedMonumentCoordinates, memoAsides, memoAside};
 })();
