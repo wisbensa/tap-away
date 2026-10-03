@@ -1,21 +1,22 @@
 (() => {
   "use strict";
   // Touch tuning inherited from the approved Phase 0 prototype.
-  const CONFIG = { extent: 31, tileWidth: 76, tileHeight: 68, heightScale: 15,
-    minZoom: .12, minTapZoom: .25, initialMinZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
+  const CONFIG = { tileWidth: 76, tileHeight: 72, heightScale: 15,
+    minZoom: .12, minTapZoom: .65, initialMinZoom: .65, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
     sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
-    pressDepth: 2, minPressPixels: 2, pressDarkening: 30, outlineColor: "48, 65, 40",
-    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, colorHoldMs: 100, colorReturnMs: 240, maxPulses: 32, soundVolume: .12, hiddenLightness: 34, previewLightness: 46 };
+    pressDepth: 2, minPressPixels: 2, pressDarkening: 30,
+    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, colorHoldMs: 100, colorReturnMs: 200, maxPulses: 32, soundVolume: .12,
+    towerRingMs: 80, towerFadeMs: 120 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
   const pointers = new Map(), pulses = [], tiles = [];
-  const hitAreas = [];
+  const hitAreas = [], towerReveals = new Map();
   let width = 0, height = 0, frame = 0, soundOn = false, audio = null, gesture = null, held = null;
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
   const SAVE_KEY='tap-away.world.v1';
-  let world,saveBlocked=false,saveTimer=0,toastTimer=0,started=false;
+  let world,saveBlocked=false,saveTimer=0,toastTimer=0,started=false,needsInitialSave=false,legacyReset=false;
   const SAVE_LOAD_ERROR = "セーブを読み込めません。元データを保持しています。この回の進行は保存されません。";
   function toast(message) {
     notice.textContent = message;
@@ -25,7 +26,12 @@
   function loadWorld() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
-      const loaded = raw === null ? TapWorld.create() : TapWorld.migrate(JSON.parse(raw));
+      const seedText = new URLSearchParams(location.search).get('seed');
+      const seed = seedText !== null && /^\d+$/.test(seedText) && Number(seedText) <= 0xffffffff ? Number(seedText) : undefined;
+      const previous = raw === null ? null : JSON.parse(raw);
+      const loaded = raw === null ? TapWorld.create(Date.now(), seed) : TapWorld.migrate(previous, Date.now(), seed);
+      legacyReset = raw !== null && previous.saveVersion < loaded.saveVersion;
+      needsInitialSave = raw === null || legacyReset;
       TapWorld.settle(loaded);
       return loaded;
     } catch {
@@ -38,15 +44,19 @@
   tiles.push(...world.tiles);
   function save() {
     clearTimeout(saveTimer);
-    if (saveBlocked) return;
+    if (saveBlocked) return false;
     TapWorld.settle(world);
-    world.savedAt = Date.now();
+    const savedAt = Date.now();
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(world));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({...world, savedAt}));
+      world.savedAt = savedAt;
+      return true;
     } catch {
       toast("保存できませんでした。端末の空き容量や保存設定を確認してください。");
+      return false;
     }
   }
+  if (needsInitialSave) save();
   function queueSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 500);
@@ -61,7 +71,7 @@
     if (saveBlocked) toast(SAVE_LOAD_ERROR);
     if (!world.introduced && !saveBlocked) {
       world.introduced = true;
-      toast("隣の土地をポチポチ開拓。★の古い塔まで行くと、遠くを見渡せます。");
+      toast((legacyReset ? "地図が新しくなりました。" : "") + "隣の土地をポチポチ開拓。★の古い塔まで行くと、遠くを見渡せます。");
       queueSave();
     }
     updateHud();
@@ -101,6 +111,26 @@
   }
   document.querySelector('#notes').addEventListener('click', openReleaseNotes);
   document.querySelector('#close-notes').addEventListener('click',()=>notes.close());
+  const skinDialog = document.querySelector('#skin-dialog'), skinChoice = document.querySelector('#skin-choice');
+  for (const skin of TapSkin.available) {
+    const option = document.createElement('option');
+    option.value = skin.id; option.textContent = skin.label; skinChoice.append(option);
+  }
+  function syncSkinChoice() { skinChoice.value = TapSkin.selection() || ''; }
+  function switchSkin(id) {
+    if (!save()) {
+      syncSkinChoice();
+      if (saveBlocked) toast("進行を保存できないため、スキンを切り替えられません。");
+      return;
+    }
+    try { TapSkin.select(id); location.reload(); }
+    catch { syncSkinChoice(); toast("スキンの設定を保存できませんでした。"); }
+  }
+  document.querySelector('#dev-skin').addEventListener('click',()=>{syncSkinChoice();skinDialog.showModal();});
+  document.querySelector('#close-skin').addEventListener('click',()=>skinDialog.close());
+  skinChoice.addEventListener('change',()=>switchSkin(skinChoice.value || null));
+  document.querySelector('#skin-default').addEventListener('click',()=>switchSkin(null));
+  const skinReady = TapSkin.load().then(()=>{syncSkinChoice();requestDraw();});
   setInterval(()=>{if(!document.hidden&&started){TapWorld.settle(world);updateHud();}},1000);
   setInterval(()=>{if(!document.hidden&&started)queueSave();},15000);
   tiles.sort((a, b) => a.y - b.y || a.x - b.x);
@@ -159,21 +189,46 @@
   function corners(tile, now) { return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => surface(tile.x + dx, tile.y + dy, now, tile)); }
   function tileColor(tile, now) {
     const darkening=CONFIG.pressDarkening*feedbackStrength(tile,now,CONFIG.colorHoldMs,CONFIG.colorReturnMs);
-    if(tile.visibility==='hidden') return `hsl(48 16% ${CONFIG.hiddenLightness-darkening}%)`;
-    if(tile.visibility==='preview') return `hsl(${tile.kind==='tree'?105:tile.kind==='mine'?32:tile.kind==='rock'?55:85} 13% ${CONFIG.previewLightness-darkening}%)`;
-    return `hsl(${83 + tile.seed % 9} 22% ${69 + tile.seed % 5 - darkening}%)`;
+    const palette=TapSkin.current.palette;
+    let color=tile.visibility==='hidden'?palette.hidden:palette[tile.visibility][tile.kind];
+    if(tile.visibility==='preview') {
+      const fade=towerFade(tile,now), hidden=palette.hidden;
+      color={h:hidden.h+(color.h-hidden.h)*fade,s:hidden.s+(color.s-hidden.s)*fade,l:hidden.l+(color.l-hidden.l)*fade};
+    }
+    const variation=tile.visibility==='opened'?(tile.seed%5)-2:0;
+    return `hsl(${color.h} ${color.s}% ${Math.max(0,color.l+variation-darkening)}%)`;
   }
   function objectShapes(tile) {
-    if (tile.kind === "tree") return [
-      [{x:-1.5,y:0},{x:1.5,y:0},{x:1.5,y:-21},{x:-1.5,y:-21}],
-      [{x:-15,y:-12},{x:0,y:-42-tile.seed%7},{x:14,y:-12},{x:0,y:-6}],
-      [{x:0,y:-42-tile.seed%7},{x:14,y:-12},{x:0,y:-6}]
-    ];
-    if ((tile.kind === "rock" || tile.kind === "mine")) return [
-      [{x:-13,y:0},{x:-9,y:-15},{x:3,y:-23},{x:15,y:-10},{x:12,y:3}],
-      [{x:3,y:-23},{x:15,y:-10},{x:12,y:3},{x:0,y:-4}]
-    ];
-    return [];
+    return tile.kind==='tree'?TapSkin.current.objects.tree.shapes:
+      tile.kind==='rock'||tile.kind==='mine'?TapSkin.current.objects.rock.shapes:[];
+  }
+  function towerFade(tile,now) {
+    const reveal=towerReveals.get(tile.x+','+tile.y);
+    return reveal?clamp((now-reveal.at)/CONFIG.towerFadeMs,0,1):1;
+  }
+  function drawAsset(id, base, alpha=1) {
+    const asset=TapSkin.current.assets[id];
+    if(!asset?.image) return false;
+    ctx.save(); ctx.globalAlpha=alpha;
+    ctx.drawImage(asset.image,base.x-asset.anchorX*camera.zoom,base.y-asset.anchorY*camera.zoom,asset.width*camera.zoom,asset.height*camera.zoom);
+    ctx.restore(); return true;
+  }
+  function visibleBounds(tile,pts,base) {
+    const skin=TapSkin.current, points=pts.slice();
+    let shapes=[], id=null;
+    const city=tile.x===0&&tile.y===0, destination=world.destination?.x===tile.x&&world.destination?.y===tile.y;
+    if(city) { shapes=[skin.objects.city.body,skin.objects.city.roof]; id='city'; }
+    else if(tile.landmark==='tower') {
+      shapes=tile.visibility==='opened'||destination?[skin.objects.tower.body]:[[{x:-7,y:0},{x:7,y:0},{x:5,y:-38},{x:-5,y:-38}]];
+      if(tile.visibility==='opened') id='tower';
+    } else if(tile.visibility!=='hidden') { shapes=objectShapes(tile); id=tile.kind; }
+    for(const shape of shapes) for(const p of shape) points.push({x:base.x+p.x*camera.zoom,y:base.y+p.y*camera.zoom});
+    const asset=id&&skin.assets[id];
+    if(asset?.image) {
+      points.push({x:base.x-asset.anchorX*camera.zoom,y:base.y-asset.anchorY*camera.zoom},
+        {x:base.x+(asset.width-asset.anchorX)*camera.zoom,y:base.y+(asset.height-asset.anchorY)*camera.zoom});
+    }
+    return {left:Math.min(...points.map(p=>p.x)),right:Math.max(...points.map(p=>p.x)),top:Math.min(...points.map(p=>p.y)),bottom:Math.max(...points.map(p=>p.y))+17*camera.zoom};
   }
   function pick(p) {
     // Use the geometry of the last displayed frame, in reverse paint order.
@@ -185,73 +240,93 @@
   function draw(now) {
     frame = 0;
     while (pulses.length && now - pulses[0].at >= CONFIG.reactionMs) pulses.shift();
+    for(const [key,reveal] of towerReveals) if(now>=reveal.at+CONFIG.towerFadeMs) towerReveals.delete(key);
+    const skin=TapSkin.current;
     ctx.clearRect(0, 0, width, height);
     hitAreas.length = 0;
     const center = project(0, 0);
     ctx.save(); ctx.translate(center.x, center.y + 35 * camera.zoom); ctx.scale(camera.zoom, camera.zoom);
-    ctx.fillStyle = "#62634c12"; ctx.beginPath(); ctx.ellipse(0, 0, 315, 150, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.fillStyle = skin.shadows.ground; ctx.beginPath(); ctx.ellipse(0, 0, 315, 150, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     const worldIndex=TapWorld.index(world);
     for (const tile of tiles) {
       const pts = corners(tile, now), { x, y, seed } = tile;
-      if(pts.every(p=>p.x<-80)||pts.every(p=>p.x>width+80)||pts.every(p=>p.y<-20)||pts.every(p=>p.y>height+100)) continue;
       const base = surface(x + .5, y + .5, now);
+      const bounds=visibleBounds(tile,pts,base);
+      if(bounds.right<0||bounds.left>width||bounds.bottom<0||bounds.top>height) continue;
       const remember = points => hitAreas.push({ tile, points, base, zoom:camera.zoom });
-      if (y === CONFIG.extent - 1) {
+      const fade=towerFade(tile,now), visibility=tile.visibility==='preview'&&fade===0?'hidden':tile.visibility;
+      if (y === world.bounds.maxY) {
         const edge = [pts[2], pts[3]];
         const side = [edge[0], edge[1], {x:edge[1].x,y:edge[1].y+17*camera.zoom}, {x:edge[0].x,y:edge[0].y+17*camera.zoom}];
-        polygon(side, "#c8baa0");
+        polygon(side, skin.objects.rock.faceColor);
         remember(side);
       }
-      polygon(pts, tileColor(tile, now), tile.visibility==='hidden'?'#eeeade0a':'#657d4b22');
+      polygon(pts, tileColor(tile, now), visibility==='hidden'?skin.lines.hidden:skin.lines.edge);
       remember(pts);
-      if(tile.visibility==='preview'&&TapWorld.eligible(tile,worldIndex)) {
-        ctx.save();ctx.setLineDash([3*camera.zoom,5*camera.zoom]);ctx.strokeStyle='#75856b';ctx.lineWidth=1;ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.stroke();ctx.restore();
-      }
       if(tile.x===0&&tile.y===0 || tile.landmark==='tower'&&(tile.visibility==='opened'||world.destination?.x===tile.x&&world.destination?.y===tile.y)) {
+        const object=tile.x===0&&tile.y===0?skin.objects.city:skin.objects.tower;
+        if(tile.visibility==='opened'&&drawAsset(tile.x===0&&tile.y===0?'city':'tower',base)) continue;
         ctx.save();ctx.translate(base.x,base.y);ctx.scale(camera.zoom,camera.zoom);
-        if(tile.x===0&&tile.y===0){polygon([{x:-20,y:0},{x:20,y:0},{x:20,y:-22},{x:-20,y:-22}],'#d6c4a2');polygon([{x:-24,y:-22},{x:0,y:-40},{x:24,y:-22}],'#9a7761');ctx.fillStyle='#77654f';ctx.fillRect(-4,-15,8,15);}
-        else{ctx.globalAlpha=tile.visibility==='opened'?1:.5;polygon([{x:-9,y:0},{x:9,y:0},{x:7,y:-56},{x:-7,y:-56}],'#8d9482');if(tile.visibility==='opened'){ctx.fillStyle='#555f50';ctx.fillRect(-2,-44,4,9);}}
+        if(tile.x===0&&tile.y===0){polygon(object.body,object.bodyColor);polygon(object.roof,object.roofColor);ctx.fillStyle=object.doorColor;ctx.fillRect(-4,-15,8,15);}
+        else{ctx.globalAlpha=tile.visibility==='opened'?1:.5;polygon(object.body,object.bodyColor);if(tile.visibility==='opened'){ctx.fillStyle=object.detailColor;ctx.fillRect(-2,-44,4,9);}}
         ctx.restore();continue;
       }
-      if(tile.visibility==='hidden') {
+      // Other enabled towers are only anonymous shapes until they are opened.
+      if(tile.landmark==='tower') {
+        ctx.save();ctx.translate(base.x,base.y);ctx.scale(camera.zoom,camera.zoom);ctx.globalAlpha=.25;
+        polygon([{x:-7,y:0},{x:7,y:0},{x:5,y:-38},{x:-5,y:-38}],skin.objects.tower.bodyColor);
+        ctx.restore();
+      }
+      if(visibility==='hidden') {
         // Sparse, sharp cartographic strokes; no blurred or moving overlay.
-        if(camera.zoom>.8 && seed%7===0) {
-          ctx.save();ctx.strokeStyle='#eeeade16';ctx.lineWidth=.8;
+        const detail=clamp((camera.zoom-.65)/.35,0,1);
+        if(detail>0 && seed%7===0) {
+          ctx.save();ctx.globalAlpha=detail;ctx.strokeStyle=skin.lines.hidden;ctx.lineWidth=.8;
           ctx.beginPath();ctx.moveTo(base.x-7*camera.zoom,base.y);ctx.lineTo(base.x+7*camera.zoom,base.y);ctx.stroke();ctx.restore();
         }
         continue;
       }
+      const objectAlpha=visibility==='preview'?.38*fade:1;
+      if(drawAsset(tile.kind,base,objectAlpha)) continue;
       const shapes = objectShapes(tile);
-      ctx.save(); ctx.translate(base.x, base.y); ctx.scale(camera.zoom, camera.zoom); ctx.globalAlpha=tile.visibility==='preview'?.38:1;
-      ctx.fillStyle = "#455e3f21"; ctx.beginPath(); ctx.ellipse(3, 2, tile.kind === "grass" ? 4 : 15, 5, -.2, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(base.x, base.y); ctx.scale(camera.zoom, camera.zoom); ctx.globalAlpha=objectAlpha;
+      ctx.fillStyle = skin.shadows.object; ctx.beginPath(); ctx.ellipse(3, 2, tile.kind === "grass" ? 4 : 15, 5, -.2, 0, Math.PI * 2); ctx.fill();
       if (tile.kind === "tree") {
-        ctx.strokeStyle = "#736b4d"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -21); ctx.stroke();
-        polygon(shapes[1], "#608164");
-        polygon(shapes[2], "#4e7158");
-        if (camera.zoom > .85) { ctx.strokeStyle = "#aac09966"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-9,-16); ctx.lineTo(-1,-32); ctx.stroke(); }
+        const object=skin.objects.tree;
+        polygon(shapes[0],object.trunkColor);polygon(shapes[1],object.leafColor);polygon(shapes[2],object.shadeColor);
+        const detail=clamp((camera.zoom-.65)/.35,0,1);
+        if(detail>0) { ctx.globalAlpha=objectAlpha*detail;ctx.strokeStyle=object.detailColor;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(-9,-16);ctx.lineTo(-1,-32);ctx.stroke(); }
       } else if ((tile.kind === "rock" || tile.kind === "mine")) {
-        polygon(shapes[0], "#a5aaa0", "#808b80");
-        polygon(shapes[1],tile.kind==='mine'?'#98774e':'#8c998e');
-      } else if (camera.zoom > .75) {
-        ctx.strokeStyle = "#70864e88"; ctx.lineWidth = .9; ctx.beginPath();
+        polygon(shapes[0],skin.objects.rock.faceColor,skin.objects.rock.lineColor);
+        polygon(shapes[1],tile.kind==='mine'?skin.objects.mine.shadeColor:skin.objects.rock.shadeColor);
+      } else if (camera.zoom > .65) {
+        ctx.globalAlpha=objectAlpha*clamp((camera.zoom-.65)/.35,0,1);
+        ctx.strokeStyle = skin.lines.detail; ctx.lineWidth = .9; ctx.beginPath();
         for (let k = 0; k < 3; k++) { ctx.moveTo(k * 5 - 8, 0); ctx.lineTo(k * 5 - 10, -3 - k % 2); } ctx.stroke();
       }
       ctx.restore();
     }
     drawDestination(now);
-    // Draw last so neighboring tile fills cannot hide the selected edges.
+    // Keep eligible ground readable beneath tall decorative objects.
+    for (const tile of tiles) {
+      if(tile.visibility==='preview'&&TapWorld.eligible(tile,worldIndex)) {
+        ctx.save();ctx.setLineDash([3*camera.zoom,5*camera.zoom]);ctx.strokeStyle=skin.lines.eligible;ctx.lineWidth=1;
+        ctx.beginPath();corners(tile,now).forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.stroke();ctx.restore();
+      }
+    }
+    // Draw selected edges last so later terrain or eligibility lines cannot cover them.
     for (const tile of tiles) {
       const strength = outlineStrength(tile, now);
       if (strength <= 0) continue;
       ctx.beginPath();
       corners(tile, now).forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
       ctx.closePath();
-      ctx.strokeStyle = `rgba(${CONFIG.outlineColor}, ${strength * .85})`;
+      ctx.strokeStyle = `rgba(${skin.lines.outline}, ${strength * .85})`;
       ctx.lineWidth = Math.max(CONFIG.minOutlinePixels, CONFIG.outlineWidth * camera.zoom);
       ctx.lineJoin = "round";
       ctx.stroke();
     }
-    if (pulses.length) requestDraw();
+    if (pulses.length || towerReveals.size) requestDraw();
   }
   function drawDestination(now) {
     if(!world.destination)return;
@@ -264,11 +339,12 @@
     const x=clamp(target.x,margin,width-margin),y=clamp(target.y,top,bottom);
     const offscreen=x!==target.x||y!==target.y;
     ctx.save();
-    if(offscreen){ctx.beginPath();ctx.arc(x,y,28,0,Math.PI*2);ctx.fillStyle='#faf8ee';ctx.fill();ctx.strokeStyle='#655a3d';ctx.lineWidth=2;ctx.stroke();}
-    ctx.fillStyle='#f0db93';ctx.strokeStyle='#655a3d';ctx.lineWidth=3;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.strokeText('★',x,y);ctx.fillText('★',x,y);
+    const ui=TapSkin.current.ui;
+    if(offscreen){ctx.beginPath();ctx.arc(x,y,28,0,Math.PI*2);ctx.fillStyle=ui.surfaceColor;ctx.fill();ctx.strokeStyle=ui.textColor;ctx.lineWidth=2;ctx.stroke();}
+    ctx.fillStyle=ui.textColor;ctx.strokeStyle=ui.surfaceColor;ctx.lineWidth=3;ctx.font='20px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.strokeText('★',x,y);ctx.fillText('★',x,y);
     if(offscreen) {
       const angle=Math.atan2(target.y-y,target.x-x);ctx.translate(x,y);ctx.rotate(angle);
-      polygon([{x:17,y:-7},{x:27,y:0},{x:17,y:7}],'#655a3d');
+      polygon([{x:17,y:-7},{x:27,y:0},{x:17,y:7}],ui.textColor);
     }
     ctx.restore();
   }
@@ -305,7 +381,20 @@
   function releasePress(commit) {
     if (!held) return;
     if(commit && (camera.zoom < CONFIG.minTapZoom || !TapWorld.eligible(held.tile,TapWorld.index(world)))) commit=false;
-    if(commit){const result=TapWorld.develop(world,held.tile);if(result==='empty')toast("探索ポイントが回復するまで、ひと休み。");if(result==='tower')toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');if(result!=='blocked'&&result!=='empty')queueSave();updateHud();pulses.push({...held,at:performance.now()});}
+    if(commit){
+      const hidden=held.tile.landmark==='tower'?world.tiles.filter(tile=>tile.visibility==='hidden'):[];
+      const result=TapWorld.develop(world,held.tile), now=performance.now();
+      if(result==='empty')toast("探索ポイントが回復するまで、ひと休み。");
+      if(result!=='blocked'&&result!=='empty')towerReveals.delete(held.tile.x+','+held.tile.y);
+      if(result==='tower') {
+        for(const tile of hidden) if(tile.visibility==='preview') {
+          const distance=Math.max(Math.abs(tile.x-held.tile.x),Math.abs(tile.y-held.tile.y));
+          towerReveals.set(tile.x+','+tile.y,{at:now+distance*CONFIG.towerRingMs});
+        }
+        toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');
+      }
+      if(result!=='blocked'&&result!=='empty')queueSave();updateHud();pulses.push({...held,at:now});
+    }
     held = null;
     if (pulses.length > CONFIG.maxPulses) pulses.shift();
     if (commit) playSound();
@@ -360,7 +449,7 @@
   for (const name of ["pointerup","pointercancel","lostpointercapture"]) canvas.addEventListener(name,endPointer);
   canvas.addEventListener("wheel", event => { event.preventDefault(); zoomAt(point(event),Math.exp(-clamp(event.deltaY,-120,120)*.002)); },{passive:false});
   window.addEventListener("resize",resize);
-  document.addEventListener("visibilitychange",() => { if (document.hidden) { save(); pointers.clear(); gesture = null; held = null; pulses.length = 0; canvas.classList.remove("dragging"); } else { TapWorld.settle(world); updateHud(); queueSave(); } requestDraw(); });
+  document.addEventListener("visibilitychange",() => { if (document.hidden) { save(); pointers.clear(); gesture = null; held = null; pulses.length = 0; towerReveals.clear(); canvas.classList.remove("dragging"); } else { TapWorld.settle(world); updateHud(); queueSave(); } requestDraw(); });
   window.addEventListener('pagehide',save);
   updateHud();
   resize();

@@ -1,0 +1,49 @@
+{
+  "formatVersion": 1,
+  "palette": {
+    "hidden": {"h":48,"s":16,"l":34},
+    "preview": {
+      "grass":{"h":85,"s":13,"l":46},
+      "tree":{"h":105,"s":13,"l":46},
+      "rock":{"h":55,"s":13,"l":46},
+      "mine":{"h":32,"s":13,"l":46}
+    },
+    "opened": {
+      "grass":{"h":85,"s":22,"l":71},
+      "tree":{"h":85,"s":22,"l":71},
+      "rock":{"h":85,"s":22,"l":71},
+      "mine":{"h":85,"s":22,"l":71}
+    }
+  },
+  "objects": {
+    "tree": {
+      "trunkColor":"#736b4d","leafColor":"#608164","shadeColor":"#4e7158","detailColor":"#aac09966",
+      "shapes":[
+        [{"x":-1.5,"y":0},{"x":1.5,"y":0},{"x":1.5,"y":-21},{"x":-1.5,"y":-21}],
+        [{"x":-15,"y":-12},{"x":0,"y":-45},{"x":14,"y":-12},{"x":0,"y":-6}],
+        [{"x":0,"y":-45},{"x":14,"y":-12},{"x":0,"y":-6}]
+      ]
+    },
+    "rock": {
+      "faceColor":"#a5aaa0","shadeColor":"#8c998e","lineColor":"#808b80",
+      "shapes":[
+        [{"x":-13,"y":0},{"x":-9,"y":-15},{"x":3,"y":-23},{"x":15,"y":-10},{"x":12,"y":3}],
+        [{"x":3,"y":-23},{"x":15,"y":-10},{"x":12,"y":3},{"x":0,"y":-4}]
+      ]
+    },
+    "mine":{"shadeColor":"#98774e"},
+    "city": {
+      "bodyColor":"#d6c4a2","roofColor":"#9a7761","doorColor":"#77654f",
+      "body":[{"x":-20,"y":0},{"x":20,"y":0},{"x":20,"y":-22},{"x":-20,"y":-22}],
+      "roof":[{"x":-24,"y":-22},{"x":0,"y":-40},{"x":24,"y":-22}]
+    },
+    "tower": {
+      "bodyColor":"#8d9482","detailColor":"#555f50",
+      "body":[{"x":-9,"y":0},{"x":9,"y":0},{"x":7,"y":-56},{"x":-7,"y":-56}]
+    }
+  },
+  "lines":{"hidden":"#eeeade16","edge":"#657d4b22","eligible":"#75856b","detail":"#70864e88","outline":"48, 65, 40"},
+  "shadows":{"ground":"#62634c12","object":"#455e3f21"},
+  "ui":{"textColor":"#263d2e","surfaceColor":"#fffdf5","borderColor":"#778571","hoverColor":"#ecefdf","backdropColor":"#34403666","noticeTextColor":"#ffffff","noticeSurfaceColor":"#263d2e","mapColor":"#eeeade"},
+  "assets": {}
+}
