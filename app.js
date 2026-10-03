@@ -1,17 +1,21 @@
 (() => {
   "use strict";
-  // Touch tuning inherited from the approved Phase 0 prototype.
+  // Initial Phase 1B tuning; final touch feel is checked on real devices.
   const CONFIG = { tileWidth: 76, tileHeight: 72, heightScale: 15,
-    minZoom: .12, minTapZoom: .25, initialMinZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 550,
-    sinkMs: 100, sinkHoldMs: 70, contactStrength: .15,
-    pressDepth: 2, minPressPixels: 2, pressDarkening: 30,
-    outlineWidth: 2, minOutlinePixels: 2, outlineHoldMs: 320, colorHoldMs: 100, colorReturnMs: 200, maxPulses: 32, soundVolume: .12,
+    minZoom: .12, minTapZoom: .25, initialMinZoom: .55, maxZoom: 2.4, dragThreshold: 7, touchDragThreshold: 14, reactionMs: 400,
+    sinkMs: 65, contactMs: 35, contactStrength: .15, reboundAtMs: 230, reboundStrength: .12,
+    pressDepth: 3.5, minPressPixels: 3.5, pressDarkening: 16,
+    blockedPixels: 1, blockedMs: 130, blockedDarkening: 3,
+    outlineWidth: 2, minOutlinePixels: 2, colorHoldMs: 65, colorReturnMs: 180, maxPulses: 32, soundVolume: .12,
+    completionMs: 420, completionRevealMs: 300, completionEdgeMs: 360,
+    waveRadius: 2, waveDelayMs: 75, waveMs: 230, waveOpacity: .5,
+    enclosureStartMs: 180, enclosureStepMs: 150, enclosureFadeMs: 150, maxOpenings: 64,
     towerRingMs: 80, towerFadeMs: 120 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
   const soundButton = document.querySelector("#sound"), notice = document.querySelector("#notice");
   const camera = { x: 0, y: 0, zoom: 1 };
   const pointers = new Map(), pulses = [], tiles = [];
-  const hitAreas = [], towerReveals = new Map();
+  const hitAreas = [], towerReveals = new Map(), openings = new Map();
   let width = 0, height = 0, frame = 0, soundOn = false, audio = null, gesture = null, held = null;
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
@@ -134,40 +138,47 @@
   setInterval(()=>{if(!document.hidden&&started){TapWorld.settle(world);updateHud();}},1000);
   setInterval(()=>{if(!document.hidden&&started)queueSave();},15000);
   tiles.sort((a, b) => a.y - b.y || a.x - b.x);
+  const tilesByCoordinate=TapWorld.index(world);
   function project(x, y, z = 0) {
     return { x: width / 2 + camera.x + x * CONFIG.tileWidth * camera.zoom,
       y: height * .48 + camera.y + (y * CONFIG.tileHeight - z) * camera.zoom };
   }
-  function reaction(p, now) {
-    if (p === held) return CONFIG.contactStrength;
-    const age = Math.max(0, now - p.at);
-    if (age < CONFIG.sinkMs) return CONFIG.contactStrength + (1 - CONFIG.contactStrength) * Math.sin(age / CONFIG.sinkMs * Math.PI / 2);
-    if (age < CONFIG.sinkMs + CONFIG.sinkHoldMs) return 1;
-    const t = clamp((age - CONFIG.sinkMs - CONFIG.sinkHoldMs) / (CONFIG.reactionMs - CONFIG.sinkMs - CONFIG.sinkHoldMs), 0, 1);
-    return Math.cos(t * Math.PI * 1.6) * (1 - t) ** 2;
+  function ease(t) { t=clamp(t,0,1); return t*t*(3-2*t); }
+  function curve(from, to, velocity, age, duration) {
+    const t=clamp(age/duration,0,1);
+    return (2*t*t*t-3*t*t+1)*from+(t*t*t-2*t*t+t)*duration*velocity+(-2*t*t*t+3*t*t)*to;
   }
-  function feedbackStrength(tile, now, holdMs, endMs) {
-    let strength = held && held.tile === tile ? CONFIG.contactStrength : 0;
-    for (const p of pulses) {
-      if (p.tile !== tile) continue;
-      const age = Math.max(0, now - p.at);
-      const fade = clamp((endMs - age) / (endMs - holdMs), 0, 1);
-      // Identification must remain visible through the rebound, not vanish
-      // when displacement becomes negative.
-      strength = Math.max(strength, age < CONFIG.sinkMs ? reaction(p, now) : fade);
-    }
-    return strength;
+  function pulseDuration(p) { return p.kind==='blocked'?CONFIG.blockedMs:p.kind==='complete'?CONFIG.completionMs:CONFIG.reactionMs; }
+  function reaction(p, now) {
+    const age=Math.max(0,now-p.at), start=p.start??CONFIG.contactStrength, velocity=p.velocity||0;
+    if(p===held) return curve(start,CONFIG.contactStrength,velocity,age,CONFIG.contactMs);
+    if(p.kind==='complete')return 0;
+    const peak=Math.min(1.2,Math.max(1,start));
+    const sink=p.kind==='blocked'?25:CONFIG.sinkMs;
+    if(age<sink) return clamp(curve(start,peak,velocity,age,sink),-1.2,Math.max(1.2,start));
+    if(p.kind==='blocked') return 1-ease((age-sink)/(CONFIG.blockedMs-sink));
+    const rise=CONFIG.reboundAtMs;
+    const rebound=-CONFIG.reboundStrength;
+    if(age<rise) return curve(peak,rebound,0,age-sink,rise-sink);
+    return curve(rebound,0,0,age-rise,pulseDuration(p)-rise);
+  }
+  function tilePulse(tile) { return held?.tile===tile?held:pulses.find(p=>p.tile===tile); }
+  function feedbackStrength(tile, now) {
+    const p=tilePulse(tile);
+    if(!p) return 0;
+    if(p===held) return clamp(reaction(p,now),0,1);
+    const age=Math.max(0,now-p.at), end=p.kind==='blocked'?CONFIG.blockedMs:CONFIG.colorReturnMs;
+    return age<CONFIG.colorHoldMs?clamp(reaction(p,now),0,1):1-ease((age-CONFIG.colorHoldMs)/(end-CONFIG.colorHoldMs));
   }
   function outlineStrength(tile, now) {
-    return feedbackStrength(tile, now, CONFIG.outlineHoldMs, CONFIG.reactionMs);
+    if(tilePulse(tile)?.kind==='complete')return 0;
+    return feedbackStrength(tile,now)*(tilePulse(tile)?.kind==='blocked'?.3:1);
   }
+  function pulseDepth(p) { return p.kind==='blocked'?CONFIG.blockedPixels/camera.zoom:Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom); }
   function displacement(x, y, now) {
-    let result = 0;
-    for (const p of held ? [...pulses, held] : pulses) {
-      if (Math.floor(x) !== p.tile.x || Math.floor(y) !== p.tile.y) continue;
-      result += Math.max(CONFIG.pressDepth, CONFIG.minPressPixels / camera.zoom) * reaction(p, now);
-    }
-    return clamp(result, -4 / camera.zoom, Math.max(CONFIG.pressDepth + 1, CONFIG.minPressPixels / camera.zoom));
+    const tile=tilesByCoordinate.get(Math.floor(x)+','+Math.floor(y)), p=tile&&tilePulse(tile);
+    const result=p?pulseDepth(p)*reaction(p,now):0;
+    return clamp(result,-CONFIG.minPressPixels/camera.zoom,Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom)*1.2);
   }
   function surface(x, y, now, tile) {
     const depth = tile ? displacement(tile.x + .5, tile.y + .5, now) : displacement(x, y, now);
@@ -186,17 +197,40 @@
     }
     return yes;
   }
-  function corners(tile, now) { return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => surface(tile.x + dx, tile.y + dy, now, tile)); }
+  function corners(tile, now) {
+    const depth=displacement(tile.x+.5,tile.y+.5,now);
+    return [[0,0],[1,0],[1,1],[0,1]].map(([dx,dy]) => project(tile.x+dx,tile.y+dy,heightAt(tile.x+dx,tile.y+dy)*CONFIG.heightScale-depth));
+  }
   function tileColor(tile, now) {
-    const darkening=CONFIG.pressDarkening*feedbackStrength(tile,now,CONFIG.colorHoldMs,CONFIG.colorReturnMs);
+    const kind=tilePulse(tile)?.kind;
+    const darkening=(kind==='blocked'?CONFIG.blockedDarkening:kind==='complete'?0:CONFIG.pressDarkening)*feedbackStrength(tile,now);
     const palette=TapSkin.current.palette;
-    let color=tile.visibility==='hidden'?palette.hidden:palette[tile.visibility][tile.kind];
-    if(tile.visibility==='preview') {
+    const display=displayState(tile,now);
+    let color=terrainColor(tile,display.visibility,display.progress);
+    if(display.visibility==='preview') {
       const fade=towerFade(tile,now), hidden=palette.hidden;
       color={h:hidden.h+(color.h-hidden.h)*fade,s:hidden.s+(color.s-hidden.s)*fade,l:hidden.l+(color.l-hidden.l)*fade};
     }
-    const variation=tile.visibility==='opened'?(tile.seed%5)-2:0;
+    if(display.reveal!==undefined) {
+      const opened=palette.opened[tile.kind], t=display.reveal;
+      color={h:color.h+(opened.h-color.h)*t,s:color.s+(opened.s-color.s)*t,l:color.l+(opened.l-color.l)*t};
+    }
+    const variation=display.visibility==='opened'?(tile.seed%5)-2:0;
     return `hsl(${color.h} ${color.s}% ${Math.max(0,color.l+variation-darkening)}%)`;
+  }
+  function terrainColor(tile,visibility,progress) {
+    const palette=TapSkin.current.palette;
+    if(visibility!=='preview') return visibility==='hidden'?palette.hidden:palette.opened[tile.kind];
+    const preview=palette.preview[tile.kind], opened=palette.opened[tile.kind], ratio=clamp(progress/tile.requiredCost,0,1);
+    return {h:preview.h+(opened.h-preview.h)*ratio,s:preview.s+(opened.s-preview.s)*ratio,l:preview.l+(Math.min(60,opened.l-6)-preview.l)*ratio};
+  }
+  function displayState(tile,now) {
+    const opening=openings.get(tile.x+','+tile.y);
+    if(opening?.automatic) {
+      const reveal=ease((now-opening.at)/CONFIG.enclosureFadeMs);
+      if(reveal<1) return {visibility:opening.visibility,progress:opening.progress,reveal};
+    }
+    return {visibility:tile.visibility,progress:tile.developmentProgress};
   }
   function objectShapes(tile) {
     return tile.kind==='tree'?TapSkin.current.objects.tree.shapes:
@@ -239,36 +273,41 @@
   }
   function draw(now) {
     frame = 0;
-    while (pulses.length && now - pulses[0].at >= CONFIG.reactionMs) pulses.shift();
+    // rAF timestamps can precede callback execution during heavy rendering.
+    now=Math.max(now,performance.now());
+    for(let i=pulses.length-1;i>=0;i--) if(now-pulses[i].at>=pulseDuration(pulses[i])) pulses.splice(i,1);
     for(const [key,reveal] of towerReveals) if(now>=reveal.at+CONFIG.towerFadeMs) towerReveals.delete(key);
+    for(const [key,opening] of openings) if(now>=opening.at+(opening.automatic?CONFIG.enclosureFadeMs:CONFIG.completionMs)) openings.delete(key);
     const skin=TapSkin.current;
     ctx.clearRect(0, 0, width, height);
     hitAreas.length = 0;
     const center = project(0, 0);
     ctx.save(); ctx.translate(center.x, center.y + 35 * camera.zoom); ctx.scale(camera.zoom, camera.zoom);
     ctx.fillStyle = skin.shadows.ground; ctx.beginPath(); ctx.ellipse(0, 0, 315, 150, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-    const worldIndex=TapWorld.index(world);
+    const worldIndex=tilesByCoordinate;
     for (const tile of tiles) {
       const pts = corners(tile, now), { x, y, seed } = tile;
       const base = surface(x + .5, y + .5, now);
       const bounds=visibleBounds(tile,pts,base);
       if(bounds.right<0||bounds.left>width||bounds.bottom<0||bounds.top>height) continue;
       const remember = points => hitAreas.push({ tile, points, base, zoom:camera.zoom });
-      const fade=towerFade(tile,now), visibility=tile.visibility==='preview'&&fade===0?'hidden':tile.visibility;
+      const display=displayState(tile,now), fade=towerFade(tile,now);
+      const visibility=display.reveal>0?'opened':display.visibility==='preview'&&fade===0?'hidden':display.visibility;
       if (y === world.bounds.maxY) {
         const edge = [pts[2], pts[3]];
-        const side = [edge[0], edge[1], {x:edge[1].x,y:edge[1].y+17*camera.zoom}, {x:edge[0].x,y:edge[0].y+17*camera.zoom}];
-        polygon(side, skin.objects.rock.faceColor);
+        const sideDepth=17*camera.zoom;
+        const side = [edge[0], edge[1], {x:edge[1].x,y:edge[1].y+sideDepth}, {x:edge[0].x,y:edge[0].y+sideDepth}];
+        polygon(side,skin.objects.rock.faceColor);
         remember(side);
       }
       polygon(pts, tileColor(tile, now), visibility==='hidden'?skin.lines.hidden:skin.lines.edge);
       remember(pts);
-      if(tile.x===0&&tile.y===0 || tile.landmark==='tower'&&(tile.visibility==='opened'||world.destination?.x===tile.x&&world.destination?.y===tile.y)) {
+      if(tile.x===0&&tile.y===0 || tile.landmark==='tower'&&(visibility==='opened'||world.destination?.x===tile.x&&world.destination?.y===tile.y)) {
         const object=tile.x===0&&tile.y===0?skin.objects.city:skin.objects.tower;
-        if(tile.visibility==='opened'&&drawAsset(tile.x===0&&tile.y===0?'city':'tower',base)) continue;
+        if(visibility==='opened'&&drawAsset(tile.x===0&&tile.y===0?'city':'tower',base)) continue;
         ctx.save();ctx.translate(base.x,base.y);ctx.scale(camera.zoom,camera.zoom);
         if(tile.x===0&&tile.y===0){polygon(object.body,object.bodyColor);polygon(object.roof,object.roofColor);ctx.fillStyle=object.doorColor;ctx.fillRect(-4,-15,8,15);}
-        else{ctx.globalAlpha=tile.visibility==='opened'?1:.5;polygon(object.body,object.bodyColor);if(tile.visibility==='opened'){ctx.fillStyle=object.detailColor;ctx.fillRect(-2,-44,4,9);}}
+        else{ctx.globalAlpha=visibility==='opened'?1:.5;polygon(object.body,object.bodyColor);if(visibility==='opened'){ctx.fillStyle=object.detailColor;ctx.fillRect(-2,-44,4,9);}}
         ctx.restore();continue;
       }
       // Other enabled towers are only anonymous shapes until they are opened.
@@ -286,7 +325,9 @@
         }
         continue;
       }
-      const objectAlpha=visibility==='preview'?.38*fade:1;
+      const previewAlpha=(.38+.4*display.progress/tile.requiredCost)*fade;
+      const opening=openings.get(tile.x+','+tile.y), completionAlpha=opening&&!opening.automatic?ease((now-opening.at)/CONFIG.completionRevealMs):1;
+      const objectAlpha=(display.reveal!==undefined?(display.visibility==='hidden'?0:previewAlpha)+(1-(display.visibility==='hidden'?0:previewAlpha))*display.reveal:visibility==='preview'?previewAlpha:1)*completionAlpha;
       if(drawAsset(tile.kind,base,objectAlpha)) continue;
       const shapes = objectShapes(tile);
       ctx.save(); ctx.translate(base.x, base.y); ctx.scale(camera.zoom, camera.zoom); ctx.globalAlpha=objectAlpha;
@@ -306,6 +347,10 @@
       }
       ctx.restore();
     }
+    // Completion stays in the tile plane: the cover retreats from its center.
+    for(const opening of openings.values()) if(!opening.automatic)
+      drawOpeningCover(opening.tile,corners(opening.tile,now),surface(opening.tile.x+.5,opening.tile.y+.5,now),now);
+    drawCompletionEdges(now);
     drawDestination(now);
     // Keep eligible ground readable beneath tall decorative objects.
     for (const tile of tiles) {
@@ -326,7 +371,56 @@
       ctx.lineJoin = "round";
       ctx.stroke();
     }
-    if (pulses.length || towerReveals.size) requestDraw();
+    if (pulses.length || towerReveals.size || openings.size || held) requestDraw();
+  }
+  function drawOpeningCover(tile,pts,base,now) {
+    const opening=openings.get(tile.x+','+tile.y);
+    if(!opening||opening.automatic) return;
+    const progress=completionReveal(opening,now);
+    if(progress>=1)return;
+    const color=terrainColor(tile,'preview',opening.progress);
+    const inner=pts.map(p=>({x:base.x+(p.x-base.x)*progress,y:base.y+(p.y-base.y)*progress}));
+    ctx.save();
+    for(let i=0;i<4;i++) {
+      const next=(i+1)%4;
+      polygon([pts[i],pts[next],inner[next],inner[i]],`hsl(${color.h} ${color.s}% ${color.l}%)`);
+    }
+    // A moving border makes the change readable even when the center is covered by a finger.
+    if(progress>0) {
+      ctx.beginPath();inner.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();
+      ctx.globalAlpha=.65*(1-progress);ctx.strokeStyle=TapSkin.current.ui.textColor;ctx.lineWidth=1.5;ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function completionReveal(opening,now) { return ease((now-opening.at)/CONFIG.completionRevealMs); }
+  function completionEdgeStrength(tile,now) {
+    if(tile.visibility==='hidden')return 0;
+    let strength=0;
+    for(const opening of openings.values()) {
+      if(opening.automatic)continue;
+      const distance=Math.abs(tile.x-opening.tile.x)+Math.abs(tile.y-opening.tile.y);
+      if(distance>CONFIG.waveRadius)continue;
+      const age=now-opening.at-distance*CONFIG.waveDelayMs;
+      const duration=distance===0?CONFIG.completionEdgeMs:CONFIG.waveMs;
+      if(age>0&&age<duration)strength=Math.max(strength,Math.sin(age/duration*Math.PI)/(distance+1));
+    }
+    return strength;
+  }
+  function drawCompletionEdges(now) {
+    const affected=new Set();
+    for(const opening of openings.values()) if(!opening.automatic)
+      for(let dy=-CONFIG.waveRadius;dy<=CONFIG.waveRadius;dy++)for(let dx=-CONFIG.waveRadius;dx<=CONFIG.waveRadius;dx++)
+        if(Math.abs(dx)+Math.abs(dy)<=CONFIG.waveRadius)affected.add((opening.tile.x+dx)+','+(opening.tile.y+dy));
+    for(const key of affected) {
+      const tile=tilesByCoordinate.get(key);if(!tile)continue;
+      const strength=completionEdgeStrength(tile,now);
+      if(!strength)continue;
+      const pts=corners(tile,now);
+      if(pts.every(p=>p.x<0||p.x>width||p.y<0||p.y>height))continue;
+      ctx.save();ctx.globalAlpha=strength*CONFIG.waveOpacity;
+      ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();
+      ctx.strokeStyle=TapSkin.current.ui.textColor;ctx.lineWidth=Math.max(1.5,2*camera.zoom);ctx.stroke();ctx.restore();
+    }
   }
   function drawDestination(now) {
     if(!world.destination)return;
@@ -367,24 +461,52 @@
     requestDraw();
   }
   function pair() { const [a,b] = [...pointers.values()]; return { midpoint: {x:(a.x+b.x)/2,y:(a.y+b.y)/2}, distance:Math.hypot(a.x-b.x,a.y-b.y) }; }
+  function canDevelop(tile) {
+    const available=Math.min(TapWorld.RULES.maxPoints,world.points+Math.max(0,Date.now()-world.lastCalculatedAt)*TapWorld.RULES.maxPoints/TapWorld.RULES.recoveryMs);
+    return TapWorld.eligible(tile,tilesByCoordinate)&&available>=1;
+  }
   function press(p) {
     if (!started || camera.zoom < CONFIG.minTapZoom) return;
     const hit = pick(p);
     if (!hit || hit.zoom < CONFIG.minTapZoom) return;
     const {tile, base, zoom} = hit;
-    if (!TapWorld.eligible(tile, TapWorld.index(world))) return;
     const localX = clamp((p.x-base.x) / (CONFIG.tileWidth*zoom),-.4,.4);
     const localY = clamp((p.y-base.y) / (CONFIG.tileHeight*zoom),-.4,.4);
-    held = {x:tile.x+.5+localX,y:tile.y+.5+localY,tile};
+    const now=performance.now(), previous=tilePulse(tile);
+    const kind=tile.visibility==='opened'||canDevelop(tile)?'normal':'blocked';
+    const start=previous?reaction(previous,now)*pulseDepth(previous)/(kind==='blocked'?CONFIG.blockedPixels/camera.zoom:Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom)):CONFIG.contactStrength;
+    const velocity=previous?(reaction(previous,now+.1)-reaction(previous,now))/.1*pulseDepth(previous)/(kind==='blocked'?CONFIG.blockedPixels/camera.zoom:Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom)):0;
+    const old=pulses.findIndex(entry=>entry.tile===tile);if(old>=0)pulses.splice(old,1);
+    held = {x:tile.x+.5+localX,y:tile.y+.5+localY,tile,kind,at:now,start,velocity};
+    // Touching an already opened automatic tile must show its current logical state.
+    if(tile.visibility==='opened'&&openings.get(tile.x+','+tile.y)?.automatic) openings.delete(tile.x+','+tile.y);
     requestDraw();
+  }
+  function animateCompletion(result, now, progress) {
+    const tile=result.tile;
+    openings.set(tile.x+','+tile.y,{tile,at:now,progress,automatic:false});
+    for(const region of result.regions) {
+      const remaining=new Set(region.map(t=>t.x+','+t.y)), layers=new Map();
+      let layer=0;
+      while(remaining.size) {
+        const boundary=region.filter(t=>remaining.has(t.x+','+t.y)&&[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy])=>!remaining.has((t.x+dx)+','+(t.y+dy))));
+        for(const t of boundary) {remaining.delete(t.x+','+t.y);layers.set(t,layer);}
+        layer++;
+      }
+      for(const entry of result.automatic.filter(entry=>layers.has(entry.tile))) {
+        openings.set(entry.tile.x+','+entry.tile.y,{...entry,automatic:true,at:now+CONFIG.enclosureStartMs+layers.get(entry.tile)*CONFIG.enclosureStepMs});
+      }
+    }
+    while(openings.size>CONFIG.maxOpenings) openings.delete(openings.keys().next().value);
   }
   function releasePress(commit) {
     if (!held) return;
-    if(commit && (camera.zoom < CONFIG.minTapZoom || !TapWorld.eligible(held.tile,TapWorld.index(world)))) commit=false;
+    if(commit && camera.zoom < CONFIG.minTapZoom) commit=false;
     if(commit){
       const hidden=held.tile.landmark==='tower'?world.tiles.filter(tile=>tile.visibility==='hidden'):[];
-      const result=TapWorld.develop(world,held.tile), now=performance.now();
-      if(result==='empty')toast("探索ポイントが回復するまで、ひと休み。");
+      const now=performance.now(), start=reaction(held,now), velocity=(reaction(held,now+.1)-start)/.1, progress=held.tile.developmentProgress;
+      const result=held.tile.visibility==='opened'?'touch':!canDevelop(held.tile)?'blocked':TapWorld.develop(world,held.tile,Date.now(),completion=>animateCompletion(completion,now,progress));
+      const kind=result==='blocked'||result==='empty'?'blocked':result==='opened'||result==='tower'?'complete':'normal';
       if(result!=='blocked'&&result!=='empty')towerReveals.delete(held.tile.x+','+held.tile.y);
       if(result==='tower') {
         for(const tile of hidden) if(tile.visibility==='preview') {
@@ -393,19 +515,22 @@
         }
         toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');
       }
-      if(result!=='blocked'&&result!=='empty')queueSave();updateHud();pulses.push({...held,at:now});
+      if(result==='opened'||result==='tower')save();
+      else if(result==='progress')queueSave();
+      updateHud();pulses.push({...held,kind,start,velocity,at:now});
     }
+    const blocked=commit?pulses[pulses.length-1].kind==='blocked':held.kind==='blocked';
     held = null;
     if (pulses.length > CONFIG.maxPulses) pulses.shift();
-    if (commit) playSound();
+    if (commit) playSound(blocked);
     requestDraw();
   }
-  function playSound() {
+  function playSound(blocked=false) {
     if (!soundOn || !audio || audio.state !== "running") return;
     const oscillator = audio.createOscillator(), gain = audio.createGain(), time = audio.currentTime;
-    oscillator.type = "sine"; oscillator.frequency.setValueAtTime(420 + Math.random()*30, time); oscillator.frequency.exponentialRampToValueAtTime(150,time+.045);
-    gain.gain.setValueAtTime(0,time); gain.gain.linearRampToValueAtTime(CONFIG.soundVolume,time+.003); gain.gain.exponentialRampToValueAtTime(.001,time+.065);
-    oscillator.connect(gain); gain.connect(audio.destination); oscillator.start(time); oscillator.stop(time+.075);
+    oscillator.type = "sine"; oscillator.frequency.setValueAtTime((blocked?680:420) + Math.random()*30, time); oscillator.frequency.exponentialRampToValueAtTime(blocked?350:150,time+(blocked?.025:.045));
+    gain.gain.setValueAtTime(0,time); gain.gain.linearRampToValueAtTime(CONFIG.soundVolume*(blocked?.35:1),time+.003); gain.gain.exponentialRampToValueAtTime(.001,time+(blocked?.04:.065));
+    oscillator.connect(gain); gain.connect(audio.destination); oscillator.start(time); oscillator.stop(time+(blocked?.05:.075));
     oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
   }
   soundButton.addEventListener("click", async () => {
@@ -449,7 +574,7 @@
   for (const name of ["pointerup","pointercancel","lostpointercapture"]) canvas.addEventListener(name,endPointer);
   canvas.addEventListener("wheel", event => { event.preventDefault(); zoomAt(point(event),Math.exp(-clamp(event.deltaY,-120,120)*.002)); },{passive:false});
   window.addEventListener("resize",resize);
-  document.addEventListener("visibilitychange",() => { if (document.hidden) { save(); pointers.clear(); gesture = null; held = null; pulses.length = 0; towerReveals.clear(); canvas.classList.remove("dragging"); } else { TapWorld.settle(world); updateHud(); queueSave(); } requestDraw(); });
+  document.addEventListener("visibilitychange",() => { if (document.hidden) { save(); pointers.clear(); gesture = null; held = null; pulses.length = 0; towerReveals.clear(); openings.clear(); canvas.classList.remove("dragging"); } else { TapWorld.settle(world); updateHud(); queueSave(); } requestDraw(); });
   window.addEventListener('pagehide',save);
   updateHud();
   resize();

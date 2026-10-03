@@ -3,7 +3,7 @@
 
   const SCENERY_TYPES = ['front_statue', 'leaf_statue', 'dressed_tree', 'front_bird', 'giant_flower', 'symmetric_tree'];
   const RULES = {
-    extent: 30, maxPoints: 700, recoveryMs: 21600000, towerRadius: 5,
+    extent: 30, maxPoints: 700, recoveryMs: 21600000, towerRadius: 5, enclosureLimit: 16,
     costs: {grass: 4, tree: 7, rock: 10, mine: 15},
     // These are initial placement/balance values, not additional gameplay rules.
     monumentMinDistance: 16, monumentMaxDistance: 24, monumentProtectionWidth: 1,
@@ -169,7 +169,40 @@
     for (const tile of w.tiles) if (tile.visibility === 'hidden' && distance(tile, tower) <= RULES.towerRadius) tile.visibility = 'preview';
     tower.effectApplied = true;
   }
-  function develop(w, t, now = Date.now()) {
+  function completeTile(w, t, m) {
+    if (t.visibility === 'opened') return;
+    t.developmentProgress = t.requiredCost;
+    t.visibility = 'opened';
+    neighbors(t, m).forEach(n => {if (n.visibility === 'hidden') n.visibility = 'preview';});
+    if (t.landmark === 'tower' && !t.effectApplied) {
+      applyTowerEffect(w, t);
+      chooseDestination(w);
+    }
+    // Opened terrain is the production source; production starts in Phase 2.
+  }
+  function enclosedRegions(w, origin, m) {
+    const checked = new Set(), protectedKeys = protectedMonumentCoordinates(w), regions = [];
+    for (const start of neighbors(origin, m)) {
+      if (start.visibility === 'opened' || checked.has(key(start.x, start.y))) continue;
+      const region = [start], seen = new Set([key(start.x, start.y)]);
+      let allowed = true;
+      for (let i = 0; i < region.length && region.length <= RULES.enclosureLimit; i++) {
+        const t = region[i], k = key(t.x, t.y);
+        checked.add(k);
+        if (protectedKeys.has(k) || t.landmark) allowed = false;
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const n = m.get(key(t.x + dx, t.y + dy));
+          if (!n) {allowed = false; continue;}
+          if (n.visibility !== 'opened' && !seen.has(key(n.x, n.y))) {
+            seen.add(key(n.x, n.y)); region.push(n);
+          }
+        }
+      }
+      if (allowed && region.length <= RULES.enclosureLimit) regions.push(region);
+    }
+    return regions;
+  }
+  function develop(w, t, now = Date.now(), onComplete) {
     settle(w, now);
     const m = index(w);
     if (!eligible(t, m)) return 'blocked';
@@ -177,14 +210,13 @@
     w.points--;
     t.developmentProgress = Math.min(t.requiredCost, t.developmentProgress + 1);
     if (t.developmentProgress < t.requiredCost) return 'progress';
-    t.visibility = 'opened';
-    neighbors(t, m).forEach(n => {if (n.visibility === 'hidden') n.visibility = 'preview';});
-    if (t.landmark === 'tower' && !t.effectApplied) {
-      applyTowerEffect(w, t);
-      chooseDestination(w);
-      return 'tower';
-    }
-    return 'opened';
+    completeTile(w, t, m);
+    // Gather every result before opening anything: automatic openings cannot chain.
+    const regions = enclosedRegions(w, t, m);
+    const automatic = regions.flat().map(tile => ({tile, visibility:tile.visibility, progress:tile.developmentProgress}));
+    for (const entry of automatic) completeTile(w, entry.tile, m);
+    if (onComplete) onComplete({tile:t, regions, automatic});
+    return t.landmark === 'tower' ? 'tower' : 'opened';
   }
   function chooseDestination(w) {
     const remaining = w.tiles.filter(t => t.landmark === 'tower' && !t.effectApplied).sort((a, b) => a.towerOrder - b.towerOrder);
