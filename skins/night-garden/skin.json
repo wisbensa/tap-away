@@ -64,7 +64,9 @@
       "lineColor": "#d0d9ec88"
     },
     "mine": {
-      "shadeColor": "#9585b5"
+      "shadeColor": "#9585b5",
+      "entranceColor": "#252538",
+      "timberColor": "#c4b9a0"
     },
     "city": {
       "bodyColor": "#d9d9bf",
