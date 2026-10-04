@@ -436,7 +436,7 @@
         const object=tile.x===0&&tile.y===0?skin.objects.city:skin.objects.tower;
         if(visibility==='opened'&&drawAsset(tile.x===0&&tile.y===0?'city':'tower',base)) continue;
         ctx.save();ctx.translate(base.x,base.y);ctx.scale(camera.zoom,camera.zoom);
-        if(tile.x===0&&tile.y===0){polygon(object.body,object.bodyColor);polygon(object.roof,object.roofColor);ctx.fillStyle=object.doorColor;ctx.fillRect(-4,-15,8,15);}
+        if(tile.x===0&&tile.y===0){polygon(object.body,object.bodyColor);polygon(object.roof,object.roofColor);ctx.fillStyle=object.doorColor;ctx.fillRect(-3,-15,6,15);ctx.fillRect(-12,-23,4,5);ctx.fillRect(8,-23,4,5);}
         else{ctx.globalAlpha=visibility==='opened'?1:.5;polygon(object.body,object.bodyColor);if(visibility==='opened'){ctx.fillStyle=object.detailColor;ctx.fillRect(-2,-44,4,9);}}
         ctx.restore();continue;
       }
@@ -466,14 +466,29 @@
         const object=skin.objects.tree;
         polygon(shapes[0],object.trunkColor);polygon(shapes[1],object.leafColor);polygon(shapes[2],object.shadeColor);
         const detail=clamp((camera.zoom-.65)/.35,0,1);
-        if(detail>0) { ctx.globalAlpha=objectAlpha*detail;ctx.strokeStyle=object.detailColor;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(-9,-16);ctx.lineTo(-1,-32);ctx.stroke(); }
+        if(detail>0) {
+          ctx.globalAlpha=objectAlpha*detail;ctx.strokeStyle=object.detailColor;ctx.lineWidth=.8;
+          // Veins follow the skin's leaf polygons, including alternate skins.
+          for(const leaf of shapes.slice(1)) {
+            const center=leaf.reduce((p,q)=>({x:p.x+q.x/leaf.length,y:p.y+q.y/leaf.length}),{x:0,y:0});
+            ctx.beginPath();
+            leaf.forEach((p,i)=>{if(i%2===0){ctx.moveTo(center.x,center.y);ctx.lineTo(center.x+(p.x-center.x)*.72,center.y+(p.y-center.y)*.72);}});
+            ctx.stroke();
+          }
+        }
       } else if ((tile.kind === "rock" || tile.kind === "mine")) {
         polygon(shapes[0],skin.objects.rock.faceColor,skin.objects.rock.lineColor);
         polygon(shapes[1],tile.kind==='mine'?skin.objects.mine.shadeColor:skin.objects.rock.shadeColor);
       } else if (camera.zoom > .65) {
         ctx.globalAlpha=objectAlpha*clamp((camera.zoom-.65)/.35,0,1);
         ctx.strokeStyle = skin.lines.detail; ctx.lineWidth = .9; ctx.beginPath();
-        for (let k = 0; k < 3; k++) { ctx.moveTo(k * 5 - 8, 0); ctx.lineTo(k * 5 - 10, -3 - k % 2); } ctx.stroke();
+        for (let k = 0; k < 3; k++) { ctx.moveTo(k * 5 - 8, 0); ctx.lineTo(k * 5 - 8, -5); } ctx.stroke();
+        // An occasional oversized leaf belongs to ordinary terrain, with no event or reward.
+        if(seed%5===0) {
+          const leaf=skin.objects.tree;
+          polygon([{x:5,y:1},{x:-1,y:-8},{x:-2,y:-20},{x:7,y:-16},{x:11,y:-8}],leaf.leafColor);
+          ctx.strokeStyle=leaf.detailColor;ctx.beginPath();ctx.moveTo(5,1);ctx.lineTo(1,-15);ctx.stroke();
+        }
       }
       ctx.restore();
     }

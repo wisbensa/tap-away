@@ -4,7 +4,8 @@
   const SELECTION_KEY = 'tap-away.dev.skin';
   const available = Object.freeze([
     Object.freeze({id:'default',label:'標準'}),
-    Object.freeze({id:'contrast',label:'配色比較（開発用）'})
+    Object.freeze({id:'contrast',label:'配色比較（開発用）'}),
+    Object.freeze({id:'night-garden',label:'夜の庭'})
   ]);
   const terrainIds = ['grass','tree','rock','mine'];
   const assetIds = new Set([...terrainIds,'city','tower','stone_arch','front_statue','leaf_statue','dressed_tree','front_bird','giant_flower','symmetric_tree']);
@@ -12,13 +13,13 @@
   // This small built-in drawing remains usable when even the standard package is unavailable.
   const builtin = {
     formatVersion:1,id:'default',label:'標準',
-    palette:{hidden:{h:48,s:16,l:34},preview:{grass:{h:85,s:13,l:46},tree:{h:105,s:13,l:46},rock:{h:55,s:13,l:46},mine:{h:32,s:13,l:46}},opened:{grass:{h:85,s:22,l:71},tree:{h:85,s:22,l:71},rock:{h:85,s:22,l:71},mine:{h:85,s:22,l:71}}},
+    palette:{"hidden":{"h":48,"s":16,"l":34},"preview":{"grass":{"h":85,"s":13,"l":46},"tree":{"h":105,"s":13,"l":46},"rock":{"h":55,"s":13,"l":46},"mine":{"h":32,"s":13,"l":46}},"opened":{"grass":{"h":82,"s":30,"l":69},"tree":{"h":99,"s":26,"l":67},"rock":{"h":48,"s":29,"l":73},"mine":{"h":40,"s":32,"l":69}}},
     objects:{
-      tree:{trunkColor:'#736b4d',leafColor:'#608164',shadeColor:'#4e7158',detailColor:'#aac09966',shapes:[[{x:-1.5,y:0},{x:1.5,y:0},{x:1.5,y:-21},{x:-1.5,y:-21}],[{x:-15,y:-12},{x:0,y:-45},{x:14,y:-12},{x:0,y:-6}],[{x:0,y:-45},{x:14,y:-12},{x:0,y:-6}]]},
-      rock:{faceColor:'#a5aaa0',shadeColor:'#8c998e',lineColor:'#808b80',shapes:[[{x:-13,y:0},{x:-9,y:-15},{x:3,y:-23},{x:15,y:-10},{x:12,y:3}],[{x:3,y:-23},{x:15,y:-10},{x:12,y:3},{x:0,y:-4}]]},
+      tree:{"trunkColor":"#6d5736","leafColor":"#365e43","shadeColor":"#688341","detailColor":"#c6c18399","shapes":[[{"x":-2,"y":0},{"x":2,"y":0},{"x":2,"y":-38},{"x":-2,"y":-38}],[{"x":0,"y":-13},{"x":-13,"y":-12},{"x":-23,"y":-20},{"x":-25,"y":-32},{"x":-19,"y":-42},{"x":-9,"y":-46},{"x":-4,"y":-58},{"x":3,"y":-63},{"x":12,"y":-56},{"x":14,"y":-44},{"x":22,"y":-39},{"x":24,"y":-27},{"x":17,"y":-17},{"x":7,"y":-15}],[{"x":1,"y":-11},{"x":4,"y":-25},{"x":15,"y":-39},{"x":27,"y":-43},{"x":28,"y":-31},{"x":22,"y":-19},{"x":12,"y":-11},{"x":5,"y":-9}]]},
+      rock:{"faceColor":"#c3b789","shadeColor":"#948560","lineColor":"#716b49","shapes":[[{"x":-13,"y":0},{"x":-9,"y":-15},{"x":3,"y":-23},{"x":15,"y":-10},{"x":12,"y":3}],[{"x":3,"y":-23},{"x":15,"y":-10},{"x":12,"y":3},{"x":0,"y":-4}]]},
       mine:{shadeColor:'#98774e'},
-      city:{bodyColor:'#d6c4a2',roofColor:'#9a7761',doorColor:'#77654f',body:[{x:-20,y:0},{x:20,y:0},{x:20,y:-22},{x:-20,y:-22}],roof:[{x:-24,y:-22},{x:0,y:-40},{x:24,y:-22}]},
-      tower:{bodyColor:'#8d9482',detailColor:'#555f50',body:[{x:-9,y:0},{x:9,y:0},{x:7,y:-56},{x:-7,y:-56}]},
+      city:{"bodyColor":"#e0cd9d","roofColor":"#76523c","doorColor":"#354d3a","body":[{"x":-17,"y":0},{"x":17,"y":0},{"x":17,"y":-29},{"x":-17,"y":-29}],"roof":[{"x":-21,"y":-29},{"x":-15,"y":-41},{"x":15,"y":-41},{"x":21,"y":-29}]},
+      tower:{"bodyColor":"#d3c498","detailColor":"#3d513b","body":[{"x":-10,"y":0},{"x":10,"y":0},{"x":10,"y":-62},{"x":6,"y":-62},{"x":6,"y":-67},{"x":2,"y":-67},{"x":2,"y":-62},{"x":-2,"y":-62},{"x":-2,"y":-67},{"x":-6,"y":-67},{"x":-6,"y":-62},{"x":-10,"y":-62}]},
       stone_arch:{baseColor:'#a3a592',faceColor:'#d3ccaf',shadeColor:'#969783',lineColor:'#666c59'},
       front_statue: {
         bodyColor:"#b9b49a",shadeColor:"#969984",detailColor:"#626957",accentColor:"#d2c9ab",
@@ -34,7 +35,7 @@
         ]
       },
       leaf_statue: {
-        bodyColor:"#c3bfa1",shadeColor:"#8d997a",detailColor:"#5d7055",accentColor:"#759367",
+        bodyColor:"#c3bfa1",shadeColor:"#8d997a",detailColor:"#5d7055",accentColor:"#3e6748",
         shapes:[
           [{"x":-7,"y":-3},{"x":-20,"y":-11},{"x":-27,"y":-31},{"x":-25,"y":-52},{"x":-15,"y":-44},{"x":-8,"y":-29}],
           [{"x":7,"y":-3},{"x":20,"y":-11},{"x":27,"y":-31},{"x":25,"y":-52},{"x":15,"y":-44},{"x":8,"y":-29}],
@@ -78,7 +79,7 @@
         ]
       },
       giant_flower: {
-        bodyColor:"#6d895e",shadeColor:"#53714f",detailColor:"#7f7350",accentColor:"#bdad83",
+        bodyColor:"#6d895e",shadeColor:"#53714f",detailColor:"#7f7350",accentColor:"#bc784e",
         shapes:[
           [{"x":-1.5,"y":0},{"x":1.5,"y":0},{"x":1,"y":-53},{"x":-1,"y":-53}],
           [{"x":0,"y":-17},{"x":-9,"y":-30},{"x":-23,"y":-34},{"x":-19,"y":-20},{"x":-7,"y":-15}],
@@ -95,7 +96,7 @@
         ]
       },
       symmetric_tree: {
-        bodyColor:"#827b5a",shadeColor:"#577552",detailColor:"#435f45",accentColor:"#79935f",
+        bodyColor:"#827b5a",shadeColor:"#365e43",detailColor:"#435f45",accentColor:"#79935f",
         shapes:[
           [{"x":-2,"y":0},{"x":2,"y":0},{"x":2,"y":-46},{"x":-2,"y":-46}],
           [{"x":-1,"y":-19},{"x":-15,"y":-30},{"x":-14,"y":-32},{"x":1,"y":-23},{"x":14,"y":-32},{"x":15,"y":-30}],
@@ -118,9 +119,9 @@
         birdShape:[{x:-3,y:-2},{x:0,y:0},{x:3,y:-2}]
       }
     },
-    lines:{hidden:'#eeeade16',edge:'#657d4b22',eligible:'#75856b',detail:'#70864e88',outline:'48, 65, 40',blockedOutline:'168, 70, 58',openedOutline:'224, 244, 194'},
-    shadows:{ground:'#62634c12',object:'#455e3f21'},
-    ui:{textColor:'#263d2e',surfaceColor:'#fffdf5',borderColor:'#778571',hoverColor:'#ecefdf',backdropColor:'#34403666',noticeTextColor:'#ffffff',noticeSurfaceColor:'#263d2e',mapColor:'#eeeade'},
+    lines:{hidden:'#eeeade16',edge:'#4f633a44',eligible:'#75856b',detail:'#466039aa',outline:'48, 65, 40',blockedOutline:'168, 70, 58',openedOutline:'224, 244, 194'},
+    shadows:{ground:'#62634c12',object:'#34452f18'},
+    ui:{textColor:'#263d2e',surfaceColor:'#fffdf5',borderColor:'#778571',hoverColor:'#ecefdf',backdropColor:'#34403666',noticeTextColor:'#ffffff',noticeSurfaceColor:'#263d2e',mapColor:'#ddd6b4'},
     assets:{}
   };
   const clone = value => JSON.parse(JSON.stringify(value));

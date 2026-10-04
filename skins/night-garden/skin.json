@@ -1,0 +1,144 @@
+{
+  "formatVersion": 1,
+  "palette": {
+    "hidden": {
+      "h": 230,
+      "s": 25,
+      "l": 15
+    },
+    "preview": {
+      "grass": {
+        "h": 205,
+        "s": 20,
+        "l": 36
+      },
+      "tree": {
+        "h": 175,
+        "s": 20,
+        "l": 36
+      },
+      "rock": {
+        "h": 230,
+        "s": 20,
+        "l": 36
+      },
+      "mine": {
+        "h": 275,
+        "s": 20,
+        "l": 36
+      }
+    },
+    "opened": {
+      "grass": {
+        "h": 205,
+        "s": 27,
+        "l": 65
+      },
+      "tree": {
+        "h": 175,
+        "s": 27,
+        "l": 65
+      },
+      "rock": {
+        "h": 230,
+        "s": 27,
+        "l": 65
+      },
+      "mine": {
+        "h": 275,
+        "s": 27,
+        "l": 65
+      }
+    }
+  },
+  "objects": {
+    "tree": {
+      "trunkColor": "#8499ad",
+      "leafColor": "#438b91",
+      "shadeColor": "#326276",
+      "detailColor": "#c3e3dc99"
+    },
+    "rock": {
+      "faceColor": "#b0bfd8",
+      "shadeColor": "#6b7e9b",
+      "lineColor": "#d0d9ec88"
+    },
+    "mine": {
+      "shadeColor": "#9585b5"
+    },
+    "city": {
+      "bodyColor": "#d9d9bf",
+      "roofColor": "#8ea9c4",
+      "doorColor": "#354560"
+    },
+    "tower": {
+      "bodyColor": "#dedfc2",
+      "detailColor": "#536780"
+    },
+    "stone_arch": {
+      "baseColor": "#8192ae",
+      "faceColor": "#ced6e5",
+      "shadeColor": "#7483a2",
+      "lineColor": "#465773"
+    },
+    "front_statue": {
+      "bodyColor": "#b9cdd7",
+      "shadeColor": "#647e99",
+      "detailColor": "#3a506b",
+      "accentColor": "#e1dfb1"
+    },
+    "leaf_statue": {
+      "bodyColor": "#b9cdd7",
+      "shadeColor": "#647e99",
+      "detailColor": "#3a506b",
+      "accentColor": "#e1dfb1"
+    },
+    "dressed_tree": {
+      "bodyColor": "#b9cdd7",
+      "shadeColor": "#647e99",
+      "detailColor": "#3a506b",
+      "accentColor": "#e1dfb1"
+    },
+    "front_bird": {
+      "bodyColor": "#b9cdd7",
+      "shadeColor": "#647e99",
+      "detailColor": "#3a506b",
+      "accentColor": "#e1dfb1"
+    },
+    "giant_flower": {
+      "bodyColor": "#b9cdd7",
+      "shadeColor": "#647e99",
+      "detailColor": "#3a506b",
+      "accentColor": "#e1dfb1"
+    },
+    "symmetric_tree": {
+      "bodyColor": "#b9cdd7",
+      "shadeColor": "#647e99",
+      "detailColor": "#3a506b",
+      "accentColor": "#e1dfb1"
+    }
+  },
+  "lines": {
+    "hidden": "#c7d9f522",
+    "edge": "#a4c9df44",
+    "eligible": "#b4d8df",
+    "detail": "#b8d7e099",
+    "outline": "184, 218, 230",
+    "blockedOutline": "244, 126, 139",
+    "openedOutline": "232, 242, 196"
+  },
+  "shadows": {
+    "ground": "#03081855",
+    "object": "#03081855"
+  },
+  "ui": {
+    "textColor": "#21324d",
+    "surfaceColor": "#e1e9f2",
+    "borderColor": "#7594b6",
+    "hoverColor": "#ccdbea",
+    "backdropColor": "#050b1bcc",
+    "noticeTextColor": "#eef4ff",
+    "noticeSurfaceColor": "#17233b",
+    "mapColor": "#0d152b"
+  }
+}
