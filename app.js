@@ -314,13 +314,7 @@
       dx = monument.x - clue.x,
       dy = monument.y - clue.y;
     const direction = (dy < 0 ? '北' : dy > 0 ? '南' : '') + (dx < 0 ? '西' : dx > 0 ? '東' : '');
-    return (
-      (direction || 'この近く') +
-      'に、大きな石のアーチがある。\n地図の位置：' +
-      monument.x +
-      ' / ' +
-      monument.y
-    );
+    return (direction || 'この近く') + 'に、大きな石のアーチがある。';
   }
   function closeMemo() {
     clearTimeout(memoTimer);
