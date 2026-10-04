@@ -4,6 +4,36 @@
   // These ornaments are deliberately flat and frontal; their saved orientation
   // does not turn them into moving characters or alter their ground coordinate.
   const colors = Object.freeze({
+    seated_statue: [
+      'shadeColor',
+      'shadeColor',
+      'bodyColor',
+      'bodyColor',
+      'shadeColor',
+      'shadeColor',
+      'detailColor',
+      'detailColor',
+    ],
+    long_statue: [
+      'shadeColor',
+      'bodyColor',
+      'shadeColor',
+      'shadeColor',
+      'bodyColor',
+      'bodyColor',
+      'detailColor',
+      'detailColor',
+    ],
+    paired_statue: [
+      'shadeColor',
+      'bodyColor',
+      'bodyColor',
+      'bodyColor',
+      'bodyColor',
+      'accentColor',
+      'detailColor',
+      'detailColor',
+    ],
     front_statue: [
       'shadeColor',
       'bodyColor',

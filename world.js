@@ -8,7 +8,23 @@
     'front_bird',
     'giant_flower',
     'symmetric_tree',
+    'seated_statue',
+    'long_statue',
+    'paired_statue',
   ];
+  // Trial line-up: designs are provisional, persisted IDs never change meaning.
+  const MONUMENTS = Object.freeze({
+    stone_arch: '石のアーチ',
+    modern_building: '窓のないビル',
+    giant_statue: '巨大な立像',
+    stepped_pyramid: '段のある建造物',
+    ring_gate: '円環の門',
+    twin_obelisks: '双子の石柱',
+    silent_dome: '静かなドーム',
+    long_colonnade: '長い列柱',
+    stone_chair: '巨大な石の椅子',
+    spiral_tower: '螺旋の建造物',
+  });
   const RULES = {
     saveVersion: 9,
     extent: 30,
@@ -35,9 +51,14 @@
     memoOpenedThreshold: 24,
     memoDiscoverZoom: 1.55,
     sceneryTypes: SCENERY_TYPES,
-    sceneryPerType: 6,
+    sceneryCount: 50,
+    // Trial distribution: five statue forms x6, four plant/animal forms x5.
+    sceneryCounts: Object.fromEntries(
+      SCENERY_TYPES.map((type) => [type, type.endsWith('_statue') ? 6 : 5]),
+    ),
+    monumentSpacing: 9,
     sceneryMinDistance: 6,
-    scenerySpecialMargin: 3,
+    scenerySpecialMargin: 2,
     terrainBands: [
       { distance: 5, grass: 0.83, tree: 0.152, rock: 0.017 },
       { distance: 10, grass: 0.75, tree: 0.215, rock: 0.03 },
@@ -238,32 +259,34 @@
   }
   function placeMonument(w) {
     const specials = [{ x: 0, y: 0 }, ...w.tiles.filter((t) => t.landmark)];
-    const candidates = rankedCoordinates(w.seed, SALT.monument, (x, y) => {
-      const d = Math.max(Math.abs(x), Math.abs(y));
-      return (
-        d >= RULES.monumentMinDistance &&
-        d <= RULES.monumentMaxDistance &&
-        Math.abs(x) < RULES.extent &&
-        Math.abs(y) < RULES.extent
+    w.monuments = [];
+    for (const [n, type] of Object.keys(MONUMENTS).entries()) {
+      const candidates = rankedCoordinates(w.seed, SALT.monument ^ n, (x, y) => {
+        const d = Math.max(Math.abs(x), Math.abs(y));
+        return (
+          d >= (n === 0 ? RULES.monumentMinDistance : 10) &&
+          d <= (n === 0 ? RULES.monumentMaxDistance : RULES.extent - 2) &&
+          Math.abs(x) < RULES.extent &&
+          Math.abs(y) < RULES.extent
+        );
+      });
+      const position = candidates.find(
+        (p) =>
+          specials.every((q) => distance(p, q) > 3) &&
+          w.monuments.every((q) => distance(p, q) >= RULES.monumentSpacing),
       );
-    });
-    // Finite search, then a deterministic less restrictive fallback; never reroll forever.
-    const position =
-      candidates.find((p) => specials.every((s) => distance(p, s) > 3)) ||
-      candidates.find((p) => specials.every((s) => distance(p, s) > 1));
-    if (!position) throw Error('Cannot place required monument');
-    const occupied = [];
-    for (let dy = -1; dy <= 1; dy++)
-      for (let dx = -1; dx <= 1; dx++) occupied.push({ x: position.x + dx, y: position.y + dy });
-    w.monuments = [
-      {
-        id: 'monument-1',
-        type: 'stone_arch',
+      if (!position) throw Error('Cannot place required landmark: ' + type);
+      const occupied = [];
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) occupied.push({ x: position.x + dx, y: position.y + dy });
+      w.monuments.push({
+        id: 'monument-' + (n + 1),
+        type,
         ...position,
         orientation: hash(w.seed, position.x, position.y, SALT.monument ^ 1) % 4,
         occupied,
-      },
-    ];
+      });
+    }
   }
   function placeScenery(w) {
     const specials = [
@@ -272,7 +295,7 @@
       ...w.monuments.flatMap((o) => o.occupied),
     ];
     const clear = (p) => specials.every((s) => distance(p, s) > RULES.scenerySpecialMargin);
-    const count = SCENERY_TYPES.length * RULES.sceneryPerType;
+    const count = RULES.sceneryCount;
     const candidates = rankedCoordinates(w.seed, SALT.scenery, (x, y) => clear({ x, y }));
     let selected = [];
     for (const candidate of candidates) {
@@ -281,15 +304,21 @@
       if (selected.length === count) break;
     }
     if (selected.length < count) {
-      // A centered spaced lattice leaves ample room after excluding special sites.
-      const step = Math.max(8, RULES.sceneryMinDistance);
-      const offset = (Math.floor((RULES.extent * 2) / step) * step) / 2;
-      selected = candidates
-        .filter((p) => (p.x + offset) % step === 0 && (p.y + offset) % step === 0)
-        .slice(0, count);
+      // Search every phase of a spaced lattice, retaining a finite deterministic fallback.
+      const step = RULES.sceneryMinDistance;
+      for (let ox = 0; ox < step && selected.length < count; ox++)
+        for (let oy = 0; oy < step && selected.length < count; oy++) {
+          const lattice = candidates
+            .filter(
+              (p) =>
+                (p.x + RULES.extent + ox) % step === 0 && (p.y + RULES.extent + oy) % step === 0,
+            )
+            .slice(0, count);
+          if (lattice.length > selected.length) selected = lattice;
+        }
       if (selected.length < count) throw Error('Cannot place required scenery');
     }
-    const types = SCENERY_TYPES.flatMap((type) => Array(RULES.sceneryPerType).fill(type)).map(
+    const types = SCENERY_TYPES.flatMap((type) => Array(RULES.sceneryCounts[type]).fill(type)).map(
       (type, n) => ({ type, n }),
     );
     types.sort(
@@ -317,7 +346,7 @@
       lastCalculatedAt: now,
       bounds: bounds(),
       seed,
-      generatorVersion: 4,
+      generatorVersion: 5,
       points: RULES.maxPoints,
       resources: { wood: 0, rock: 0, metal: 0 },
       facilities: { inn: 0, well: 0, workshop: 0 },
@@ -348,6 +377,12 @@
   }
   function developmentPower(w, level = w.facilities.workshop) {
     return 1 + level + (w.tiles.some((t) => t.landmark === 'ruins' && t.effectApplied) ? 1 : 0);
+  }
+  function resourceTileCounts(w) {
+    const counts = { tree: 0, rock: 0, mine: 0 };
+    for (const tile of w.tiles)
+      if (tile.visibility === 'opened' && Object.hasOwn(counts, tile.kind)) counts[tile.kind]++;
+    return counts;
   }
   function productionRates(w) {
     const rates = { wood: 0, rock: 0, metal: 0 };
@@ -563,7 +598,7 @@
   }
   function chooseDestination(w) {
     const remaining = w.tiles
-      .filter((t) => t.landmark === 'tower' && !t.effectApplied)
+      .filter((t) => t.towerOrder === 0 && !t.effectApplied)
       .sort((a, b) => a.towerOrder - b.towerOrder);
     w.destination = remaining.length ? { x: remaining[0].x, y: remaining[0].y } : null;
   }
@@ -577,7 +612,7 @@
       }
     };
     const tower = w.destination && m.get(key(w.destination.x, w.destination.y));
-    if (tower?.landmark === 'tower' && !tower.effectApplied) add(tower);
+    if (tower?.towerOrder === 0 && !tower.effectApplied) add(tower);
     if (w.memo.status === 'collected') {
       const monument = w.monuments.find((object) => object.id === w.memo.monumentId);
       if (monument && !monumentStatus(w, monument, m).reached) add(monument);
@@ -614,7 +649,7 @@
       w.saveVersion !== RULES.saveVersion ||
       w.worldVersion !== 1 ||
       w.phase !== 2 ||
-      w.generatorVersion !== 4 ||
+      ![4, 5].includes(w.generatorVersion) ||
       !isSeed(w.seed) ||
       !finite(w.savedAt) ||
       !finite(w.lastCalculatedAt) ||
@@ -713,11 +748,14 @@
       landmarks.filter((t) => t.landmark === 'ruins').length !== 1
     )
       fail();
-    if (!Array.isArray(w.monuments) || w.monuments.length !== 1) fail();
+    if (!Array.isArray(w.monuments) || w.monuments.length !== (w.generatorVersion === 4 ? 1 : 10))
+      fail();
     for (const monument of w.monuments) {
       if (
         !coordinate(monument) ||
-        monument.type !== 'stone_arch' ||
+        !(w.generatorVersion === 4
+          ? monument.type === 'stone_arch'
+          : Object.hasOwn(MONUMENTS, monument.type)) ||
         !orientation(monument.orientation) ||
         !Array.isArray(monument.occupied) ||
         monument.occupied.length !== 9
@@ -737,13 +775,19 @@
         occupied.add(key(p.x, p.y));
       }
     }
+    if (w.generatorVersion === 5 && new Set(w.monuments.map((o) => o.type)).size !== 10) fail();
     if (
       !Array.isArray(w.scenery) ||
-      w.scenery.length !== SCENERY_TYPES.length * RULES.sceneryPerType
+      w.scenery.length !== (w.generatorVersion === 4 ? 36 : RULES.sceneryCount)
     )
       fail();
     const scenerySeen = new Set(),
-      counts = new Map(SCENERY_TYPES.map((type) => [type, 0]));
+      counts = new Map(
+        (w.generatorVersion === 4 ? SCENERY_TYPES.slice(0, 6) : SCENERY_TYPES).map((type) => [
+          type,
+          0,
+        ]),
+      );
     for (const object of w.scenery) {
       if (
         !coordinate(object) ||
@@ -759,7 +803,12 @@
       scenerySeen.add(key(object.x, object.y));
       counts.set(object.type, counts.get(object.type) + 1);
     }
-    if ([...counts.values()].some((n) => n !== RULES.sceneryPerType)) fail();
+    if (
+      [...counts].some(
+        ([type, n]) => n !== (w.generatorVersion === 4 ? 6 : RULES.sceneryCounts[type]),
+      )
+    )
+      fail();
     {
       if (
         !w.memo ||
@@ -783,10 +832,13 @@
         w.destination !== null &&
         (!coordinate(w.destination) ||
           m.get(key(w.destination.x, w.destination.y))?.landmark !== 'tower' ||
+          (w.generatorVersion === 5 &&
+            m.get(key(w.destination.x, w.destination.y)).towerOrder !== 0) ||
           m.get(key(w.destination.x, w.destination.y)).effectApplied)
       )
         fail();
-      if (w.destination === null && towers.some((t) => !t.effectApplied)) fail();
+      if (w.destination === null && towers.some((t) => t.towerOrder === 0 && !t.effectApplied))
+        fail();
     }
     for (const k of ['wood', 'rock', 'metal'])
       if (!finite(w.resources?.[k]) || w.resources[k] < 0) fail();
@@ -838,6 +890,8 @@
   }
   globalThis.TapWorld = {
     RULES,
+    MONUMENTS,
+    resourceTileCounts,
     create,
     generateTile,
     index,

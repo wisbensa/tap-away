@@ -555,6 +555,28 @@ header #resources {
   width: 100%;
   margin: 8px 0;
 }
+#development-tools label,
+#development-tools select {
+  display: block;
+  width: 100%;
+  margin: 8px 0;
+}
+#development-tools select {
+  min-height: 44px;
+  color: var(--tap-text-color);
+  background: var(--tap-surface-color);
+}
+#help-dialog {
+  max-width: 420px;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+}
+#help-dialog p {
+  line-height: 1.7;
+}
+#resource-tiles {
+  font-size: 13px;
+}
 #settings-panel button {
   scroll-margin-top: 74px;
 }

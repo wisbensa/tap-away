@@ -4,7 +4,14 @@
   const CONFIG = {
     developmentBuild: true,
     tileWidth: 76,
-    tileHeight: 72,
+    tileHeight: 48,
+    tileSkew: 16,
+    viewSkews: { original: 0, depth: 16 },
+    viewHeights: { original: 72, depth: 48 },
+    archTrial: 'full',
+    sceneryReactionMs: 650,
+    sceneryReactionCooldownMs: 1200,
+    sceneryReactionAngle: 0.035,
     heightScale: 15,
     minZoom: 0.12,
     minTapZoom: 0.25,
@@ -128,6 +135,38 @@
     }
   });
   document.querySelector('#settings-close').addEventListener('click', closeSettings);
+  const helpDialog = document.querySelector('#help-dialog');
+  document.querySelector('#help').addEventListener('click', () => {
+    closeSettings();
+    helpDialog.showModal();
+  });
+  document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
+  document.querySelector('#view-trial').addEventListener('change', (event) => {
+    const next = CONFIG.viewHeights[event.target.value];
+    if (!next) return;
+    // Keep the ground coordinate at the viewport center fixed while comparing.
+    let focusX = -camera.x / (CONFIG.tileWidth * camera.zoom);
+    let focusY = (height * 0.02 - camera.y) / (CONFIG.tileHeight * camera.zoom);
+    for (let i = 0; i < 5; i++) {
+      focusX = (-camera.x / camera.zoom - focusY * CONFIG.tileSkew) / CONFIG.tileWidth;
+      focusY =
+        ((height * 0.02 - camera.y) / camera.zoom + heightAt(focusX, focusY) * CONFIG.heightScale) /
+        CONFIG.tileHeight;
+    }
+    const nextSkew = CONFIG.viewSkews[event.target.value];
+    camera.x -= focusY * (nextSkew - CONFIG.tileSkew) * camera.zoom;
+    camera.y -= focusY * (next - CONFIG.tileHeight) * camera.zoom;
+    CONFIG.tileHeight = next;
+    CONFIG.tileSkew = nextSkew;
+    held = null;
+    pointers.clear();
+    gesture = null;
+    requestDraw();
+  });
+  document.querySelector('#arch-trial').addEventListener('change', (event) => {
+    CONFIG.archTrial = event.target.value === 'original' ? 'original' : 'full';
+    requestDraw();
+  });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeSettings();
   });
@@ -185,6 +224,15 @@
   }
   function updateTown() {
     const rates = TapWorld.productionRates(world);
+    const counts = TapWorld.resourceTileCounts(world);
+    document.querySelector('#resource-tiles').textContent =
+      '開拓済み　森 ' +
+      counts.tree +
+      'マス　岩場 ' +
+      counts.rock +
+      'マス　鉱山 ' +
+      counts.mine +
+      'マス';
     document.querySelector('#production').textContent = Object.keys(resourceLabels)
       .map((k) => resourceLabels[k] + ' +' + rates[k] + '/h')
       .join('　');
@@ -441,7 +489,7 @@
       dx = monument.x - clue.x,
       dy = monument.y - clue.y;
     const direction = (dy < 0 ? '北' : dy > 0 ? '南' : '') + (dx < 0 ? '西' : dx > 0 ? '東' : '');
-    return (direction || 'この近く') + 'に、大きな石のアーチがある。';
+    return (direction || 'この近く') + 'に、' + TapWorld.MONUMENTS[monument.type] + 'がある。';
   }
   function closeMemo() {
     clearTimeout(memoTimer);
@@ -576,6 +624,7 @@
   );
   const atmosphere = { shadow: null, small: null, nextShadow: 0, nextSmall: 0 };
   function resetAtmosphere(now = performance.now()) {
+    sceneryReactions.clear();
     atmosphere.shadow = null;
     atmosphere.small = null;
     atmosphere.nextShadow =
@@ -675,22 +724,52 @@
       }
     }
   }
+  const sceneryReactions = new Map();
+  const sceneryCooldowns = new Map();
+  function reactScenery(tile, now) {
+    const object = sceneryByCoordinate.get(tile.x + ',' + tile.y);
+    if (
+      tile.visibility !== 'opened' ||
+      !object ||
+      !['front_bird', 'giant_flower', 'symmetric_tree'].includes(object.type) ||
+      now < (sceneryCooldowns.get(object.id) || 0)
+    )
+      return;
+    sceneryReactions.set(object.id, now);
+    sceneryCooldowns.set(object.id, now + CONFIG.sceneryReactionCooldownMs);
+  }
   function drawScenery(tile, base, alpha = 1) {
     const object = sceneryByCoordinate.get(tile.x + ',' + tile.y);
     if (!object || tile.visibility !== 'opened' || alpha <= 0) return false;
-    if (drawAsset(object.type, base, alpha)) return true;
+    const age = performance.now() - (sceneryReactions.get(object.id) ?? -Infinity);
+    ctx.save();
+    if (age < CONFIG.sceneryReactionMs) {
+      ctx.translate(base.x, base.y);
+      ctx.rotate(
+        Math.sin((age / CONFIG.sceneryReactionMs) * Math.PI * 2) *
+          Math.sin((age / CONFIG.sceneryReactionMs) * Math.PI) *
+          CONFIG.sceneryReactionAngle,
+      );
+      ctx.translate(-base.x, -base.y);
+    }
+    if (drawAsset(object.type, base, alpha)) {
+      ctx.restore();
+      return true;
+    }
     if (globalThis.TapScenery) {
       ctx.save();
       ctx.globalAlpha = alpha;
       const drawn = TapScenery.draw(ctx, object.type, base.x, base.y, camera.zoom, TapSkin.current);
       ctx.restore();
+      ctx.restore();
       return drawn;
     }
+    ctx.restore();
     return false;
   }
   function project(x, y, z = 0) {
     return {
-      x: width / 2 + camera.x + x * CONFIG.tileWidth * camera.zoom,
+      x: width / 2 + camera.x + (x * CONFIG.tileWidth + y * CONFIG.tileSkew) * camera.zoom,
       y: height * 0.48 + camera.y + (y * CONFIG.tileHeight - z) * camera.zoom,
     };
   }
@@ -941,7 +1020,12 @@
       );
     }
     if (tile.visibility === 'opened' && monumentsByCoordinate.has(tile.x + ',' + tile.y)) {
-      points.push(...pts.map((p) => ({ x: p.x, y: p.y - 120 * camera.zoom })));
+      const monumentBounds = monumentsByCoordinate.get(tile.x + ',' + tile.y);
+      for (const x of [-1, 2])
+        for (const y of [-1, 2]) {
+          const p = surface(monumentBounds.x + x, monumentBounds.y + y, performance.now());
+          points.push(p, { x: p.x, y: p.y - 190 * camera.zoom });
+        }
       const archBase = surface(tile.x + 0.5, tile.y + 0.5, performance.now());
       points.push(
         { x: archBase.x - 110 * camera.zoom, y: archBase.y - 130 * camera.zoom },
@@ -1069,6 +1153,8 @@
   }
   function draw(now) {
     frame = 0;
+    for (const [id, at] of sceneryReactions)
+      if (now - at >= CONFIG.sceneryReactionMs) sceneryReactions.delete(id);
     // rAF timestamps can precede callback execution during heavy rendering.
     now = Math.max(now, performance.now());
     for (let i = pulses.length - 1; i >= 0; i--)
@@ -1211,7 +1297,9 @@
         (tile.x === 0 && tile.y === 0) ||
         (tile.landmark === 'tower' &&
           (visibility === 'opened' ||
-            (world.destination?.x === tile.x && world.destination?.y === tile.y)))
+            (tile.towerOrder === 0 &&
+              world.destination?.x === tile.x &&
+              world.destination?.y === tile.y)))
       ) {
         const object = tile.x === 0 && tile.y === 0 ? skin.objects.city : skin.objects.tower;
         if (
@@ -1423,7 +1511,8 @@
       openings.size ||
       held ||
       atmosphere.shadow ||
-      atmosphere.small
+      atmosphere.small ||
+      sceneryReactions.size
     )
       requestDraw();
   }
@@ -1506,9 +1595,151 @@
     if (alpha <= 0) return;
     ctx.save();
     ctx.globalAlpha = alpha;
-    if (!drawAsset('stone_arch', base, alpha))
-      drawArch(ctx, base.x, base.y, (CONFIG.tileWidth * camera.zoom * 2.4) / 136);
+    if (monument.type === 'stone_arch' && CONFIG.archTrial === 'original') {
+      if (!drawAsset('stone_arch', base, alpha))
+        drawArch(ctx, base.x, base.y, (CONFIG.tileWidth * camera.zoom * 2.4) / 136);
+    } else drawLandmarkStructure(monument, now);
     ctx.restore();
+  }
+  // Trial forms share ground projection and skin colors, without gameplay effects.
+  function drawLandmarkStructure(monument, now) {
+    const stone = TapSkin.current.objects.stone_arch;
+    const at = (x, y, z = 0) => {
+      const p = surface(monument.x + x, monument.y + y, now);
+      return { x: p.x, y: p.y - z * camera.zoom };
+    };
+    const block = (x1, y1, x2, y2, z1, z2) => {
+      polygon(
+        [at(x1, y2, z1), at(x2, y2, z1), at(x2, y2, z2), at(x1, y2, z2)],
+        stone.faceColor,
+        stone.lineColor,
+      );
+      polygon(
+        [at(x2, y1, z1), at(x2, y2, z1), at(x2, y2, z2), at(x2, y1, z2)],
+        stone.shadeColor,
+        stone.lineColor,
+      );
+      polygon(
+        [at(x1, y1, z2), at(x2, y1, z2), at(x2, y2, z2), at(x1, y2, z2)],
+        stone.baseColor,
+        stone.lineColor,
+      );
+    };
+    // A shared low plinth binds all nine occupied tiles into one footprint.
+    block(-0.92, -0.92, 1.92, 1.92, 0, 5);
+    if (monument.type === 'stone_arch') {
+      const back = at(0.5, -0.65, 5),
+        front = at(0.5, 1.65, 5);
+      const scale = (CONFIG.tileWidth * camera.zoom * 2.6) / 136;
+      drawArch(ctx, back.x, back.y, scale);
+      // Deep piers and voussoir roof connect the rear and front arches.
+      block(-0.8, -0.65, -0.23, 1.65, 5, 48);
+      block(1.23, -0.65, 1.8, 1.65, 5, 48);
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI,
+          b = ((i + 1) / 12) * Math.PI;
+        const p = (angle) => ({ x: 0.5 + Math.cos(angle) * 1.3, z: 32 + Math.sin(angle) * 66 });
+        const q = p(a),
+          r = p(b);
+        polygon(
+          [at(q.x, -0.65, q.z), at(r.x, -0.65, r.z), at(r.x, 1.65, r.z), at(q.x, 1.65, q.z)],
+          stone.baseColor,
+          stone.lineColor,
+        );
+      }
+      drawArch(ctx, front.x, front.y, scale);
+      return;
+    }
+    switch (monument.type) {
+      case 'modern_building':
+        block(-0.5, -0.55, 1.5, 1.55, 5, 160);
+        for (let z = 25; z < 160; z += 24) block(-0.51, 1.53, 1.51, 1.57, z, z + 3);
+        break;
+      case 'giant_statue':
+        block(-0.55, -0.3, 1.55, 1.3, 5, 18);
+        block(-0.25, 0.2, 0.28, 0.9, 18, 62);
+        block(0.72, 0.2, 1.25, 0.9, 18, 62);
+        block(-0.4, 0.05, 1.4, 1.1, 62, 113);
+        block(-0.68, 0.3, -0.4, 0.8, 55, 105);
+        block(1.4, 0.3, 1.68, 0.8, 55, 105);
+        block(0.08, 0.18, 0.92, 0.98, 113, 146);
+        break;
+      case 'stepped_pyramid':
+        for (let i = 0; i < 5; i++)
+          block(
+            -0.8 + i * 0.22,
+            -0.8 + i * 0.22,
+            1.8 - i * 0.22,
+            1.8 - i * 0.22,
+            5 + i * 19,
+            24 + i * 19,
+          );
+        break;
+      case 'ring_gate': {
+        const center = at(0.5, 0.5, 79);
+        ctx.strokeStyle = stone.shadeColor;
+        ctx.lineWidth = 18 * camera.zoom;
+        ctx.beginPath();
+        ctx.ellipse(
+          center.x + 7 * camera.zoom,
+          center.y - 7 * camera.zoom,
+          62 * camera.zoom,
+          65 * camera.zoom,
+          0,
+          0,
+          Math.PI * 2,
+        );
+        ctx.stroke();
+        ctx.strokeStyle = stone.faceColor;
+        ctx.beginPath();
+        ctx.ellipse(center.x, center.y, 62 * camera.zoom, 65 * camera.zoom, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        block(-0.1, 0.2, 1.1, 0.8, 5, 18);
+        break;
+      }
+      case 'twin_obelisks':
+        for (const x of [-0.5, 1]) {
+          block(x, -0.4, x + 0.5, 1.4, 5, 105);
+          polygon(
+            [at(x, 1.4, 105), at(x + 0.5, 1.4, 105), at(x + 0.25, 0.5, 143)],
+            stone.faceColor,
+            stone.lineColor,
+          );
+        }
+        break;
+      case 'silent_dome': {
+        const p = at(0.5, 0.6, 5);
+        ctx.fillStyle = stone.faceColor;
+        ctx.strokeStyle = stone.lineColor;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, 96 * camera.zoom, 99 * camera.zoom, 0, Math.PI, Math.PI * 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        block(-0.8, 0.6, 1.8, 1.2, 5, 15);
+        break;
+      }
+      case 'long_colonnade':
+        for (const y of [-0.5, 1.25])
+          for (const x of [-0.6, 0.35, 1.3]) block(x, y, x + 0.3, y + 0.3, 5, 86);
+        block(-0.7, -0.65, 1.75, 1.7, 86, 100);
+        break;
+      case 'stone_chair':
+        for (const y of [-0.5, 1.1])
+          for (const x of [-0.5, 1.1]) block(x, y, x + 0.4, y + 0.4, 5, 43);
+        block(-0.65, -0.65, 1.65, 1.65, 43, 58);
+        block(-0.65, -0.65, 1.65, -0.25, 58, 139);
+        break;
+      case 'spiral_tower':
+        block(0.15, 0.15, 0.85, 0.85, 5, 128);
+        for (let i = 0; i < 12; i++) {
+          const a = (i * Math.PI) / 3,
+            x = 0.5 + Math.cos(a) * 0.7,
+            y = 0.5 + Math.sin(a) * 0.7;
+          block(x - 0.34, y - 0.34, x + 0.34, y + 0.34, 8 + i * 9, 15 + i * 9);
+        }
+        break;
+    }
   }
   function drawMemoClue(now) {
     if (world.memo.status !== 'placed') return;
@@ -1911,13 +2142,16 @@
             towerReveals.set(tile.x + ',' + tile.y, { at: now + distance * CONFIG.towerRingMs });
           }
         toast(
-          world.destination
-            ? '古い塔から視界が広がりました。次の★の塔へ進んでみましょう。'
-            : '5つの塔を開拓しました。気の向くままに地図を広げましょう。',
+          held.tile.towerOrder === 0
+            ? '古い塔から視界が広がりました。開いた土地に残る手掛かりを探してみましょう。'
+            : '古い塔から視界が広がりました。気の向くままに地図を広げましょう。',
         );
       }
       if (completion?.monumentReached)
-        toast('大きな石のアーチを見つけました。周りの土地が広がり、全体が姿を現します。');
+        toast(
+          TapWorld.MONUMENTS[completion.monumentReached.type] +
+            'を見つけました。全体が姿を現します。',
+        );
       if (result === 'spring') toast('清水の泉を見つけました。探索ポイントが回復しました。');
       if (result === 'ruins')
         toast(
@@ -1943,6 +2177,7 @@
         save();
       else if (result === 'progress') queueSave();
       if (memo) showMemo(memo.alreadyReached);
+      if (result === 'touch') reactScenery(held.tile, now);
       if (result === 'touch' || result === 'opened') smallEvent(held.tile, now);
       updateHud();
       pulses.push({ ...held, kind, start, velocity, at: now });
