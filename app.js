@@ -452,7 +452,7 @@
       Math.floor(world.resources.rock) +
       '　金属 ' +
       Math.floor(world.resources.metal);
-    memoReview.hidden = !started || world.memo.status !== 'collected';
+    memoReview.hidden = !started || !latestCollectedMemo();
     if (!townPanel.hidden) updateTown();
   }
   function showResume(gained) {
@@ -493,8 +493,8 @@
     requestDraw();
   }
   document.querySelector('#start').addEventListener('click', startGame);
-  function memoHint(monument) {
-    const clue = world.memo.clue,
+  function memoHint(monument, memo = world.memo) {
+    const clue = memo.clue,
       dx = monument.x - clue.x,
       dy = monument.y - clue.y;
     const direction = (dy < 0 ? '北' : dy > 0 ? '南' : '') + (dx < 0 ? '西' : dx > 0 ? '東' : '');
@@ -505,12 +505,16 @@
     memoPanel.hidden = true;
     requestDraw();
   }
+  function latestCollectedMemo() {
+    return world.memo.status === 'collected' ? world.memo : world.memoHistory.at(-1);
+  }
   function showMemo(alreadyReached = false) {
     townPanel.hidden = true;
-    const monument = world.monuments.find((m) => m.id === world.memo.monumentId);
-    if (world.memo.status !== 'collected' || !monument) return;
-    document.querySelector('#memo-hint').textContent = memoHint(monument);
-    document.querySelector('#memo-aside').textContent = TapWorld.memoAside(world);
+    const memo = latestCollectedMemo();
+    const monument = memo && world.monuments.find((m) => m.id === memo.monumentId);
+    if (!memo || !monument) return;
+    document.querySelector('#memo-hint').textContent = memoHint(monument, memo);
+    document.querySelector('#memo-aside').textContent = TapWorld.memoAside(world, memo);
     document.querySelector('#memo-context').textContent =
       alreadyReached || TapWorld.monumentStatus(world, monument).reached
         ? 'この場所は、もう見つけていた。'
@@ -519,7 +523,17 @@
       pen = picture.getContext('2d'),
       skin = TapSkin.current;
     pen.clearRect(0, 0, picture.width, picture.height);
-    drawArch(pen, 90, 86, 1, true);
+    picture.setAttribute('aria-label', TapWorld.MONUMENTS[monument.type] + 'の絵');
+    if (monument.type === 'stone_arch') drawArch(pen, 90, 86, 1, true);
+    else
+      drawLandmarkStructure(monument, 0, {
+        pen,
+        zoom: 0.42,
+        at: (x, y, z = 0) => ({
+          x: 90 + (x - 0.5) * 23 + (y - 0.5) * 8,
+          y: 85 + (y - 0.5) * 7 - z * 0.42,
+        }),
+      });
     memoPanel.hidden = false;
     clearTimeout(memoTimer);
     memoTimer = setTimeout(closeMemo, CONFIG.memoDisplayMs);
@@ -883,16 +897,16 @@
     const depth = tile ? displacement(tile.x + 0.5, tile.y + 0.5, now) : displacement(x, y, now);
     return project(x, y, heightAt(x, y) * CONFIG.heightScale - depth);
   }
-  function polygon(points, fill, stroke) {
-    ctx.beginPath();
-    points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-    ctx.closePath();
-    ctx.fillStyle = fill;
-    ctx.fill();
+  function polygon(points, fill, stroke, pen = ctx, zoom = camera.zoom) {
+    pen.beginPath();
+    points.forEach((p, i) => (i ? pen.lineTo(p.x, p.y) : pen.moveTo(p.x, p.y)));
+    pen.closePath();
+    pen.fillStyle = fill;
+    pen.fill();
     if (stroke) {
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = 0.65 * camera.zoom;
-      ctx.stroke();
+      pen.strokeStyle = stroke;
+      pen.lineWidth = 0.65 * zoom;
+      pen.stroke();
     }
   }
   function inside(p, points) {
@@ -1642,24 +1656,29 @@
     ctx.restore();
   }
   // Trial forms share ground projection and skin colors, without gameplay effects.
-  function drawLandmarkStructure(monument, now) {
-    const stone = TapSkin.current.objects.stone_arch;
-    const at = (x, y, z = 0) => {
-      const p = surface(monument.x + x, monument.y + y, now);
-      return { x: p.x, y: p.y - z * camera.zoom };
-    };
+  function drawLandmarkStructure(monument, now, drawing = null) {
+    const stone = TapSkin.current.objects.stone_arch,
+      pen = drawing?.pen || ctx,
+      zoom = drawing?.zoom ?? camera.zoom;
+    const paint = (points, fill, stroke) => polygon(points, fill, stroke, pen, zoom);
+    const at =
+      drawing?.at ||
+      ((x, y, z = 0) => {
+        const p = surface(monument.x + x, monument.y + y, now);
+        return { x: p.x, y: p.y - z * zoom };
+      });
     const block = (x1, y1, x2, y2, z1, z2) => {
-      polygon(
+      paint(
         [at(x1, y2, z1), at(x2, y2, z1), at(x2, y2, z2), at(x1, y2, z2)],
         stone.faceColor,
         stone.lineColor,
       );
-      polygon(
+      paint(
         [at(x2, y1, z1), at(x2, y2, z1), at(x2, y2, z2), at(x2, y1, z2)],
         stone.shadeColor,
         stone.lineColor,
       );
-      polygon(
+      paint(
         [at(x1, y1, z2), at(x2, y1, z2), at(x2, y2, z2), at(x1, y2, z2)],
         stone.baseColor,
         stone.lineColor,
@@ -1670,7 +1689,7 @@
     if (monument.type === 'stone_arch') {
       const back = at(0.5, -0.65, 5),
         front = at(0.5, 1.65, 5);
-      const scale = (CONFIG.tileWidth * camera.zoom * 2.6) / 136;
+      const scale = (CONFIG.tileWidth * zoom * 2.6) / 136;
       drawProjectedArch(back, scale);
       // Deep piers and voussoir roof connect the rear and front arches.
       block(-0.8, -0.65, -0.23, 1.65, 5, 48);
@@ -1681,7 +1700,7 @@
         const p = (angle) => ({ x: 0.5 + Math.cos(angle) * 1.3, z: 32 + Math.sin(angle) * 66 });
         const q = p(a),
           r = p(b);
-        polygon(
+        paint(
           [at(q.x, -0.65, q.z), at(r.x, -0.65, r.z), at(r.x, 1.65, r.z), at(q.x, 1.65, q.z)],
           stone.baseColor,
           stone.lineColor,
@@ -1717,30 +1736,30 @@
         break;
       case 'ring_gate': {
         const center = at(0.5, 0.5, 79);
-        ctx.strokeStyle = stone.shadeColor;
-        ctx.lineWidth = 18 * camera.zoom;
-        ctx.beginPath();
-        ctx.ellipse(
-          center.x + 7 * camera.zoom,
-          center.y - 7 * camera.zoom,
-          62 * camera.zoom,
-          65 * camera.zoom,
+        pen.strokeStyle = stone.shadeColor;
+        pen.lineWidth = 18 * zoom;
+        pen.beginPath();
+        pen.ellipse(
+          center.x + 7 * zoom,
+          center.y - 7 * zoom,
+          62 * zoom,
+          65 * zoom,
           0,
           0,
           Math.PI * 2,
         );
-        ctx.stroke();
-        ctx.strokeStyle = stone.faceColor;
-        ctx.beginPath();
-        ctx.ellipse(center.x, center.y, 62 * camera.zoom, 65 * camera.zoom, 0, 0, Math.PI * 2);
-        ctx.stroke();
+        pen.stroke();
+        pen.strokeStyle = stone.faceColor;
+        pen.beginPath();
+        pen.ellipse(center.x, center.y, 62 * zoom, 65 * zoom, 0, 0, Math.PI * 2);
+        pen.stroke();
         block(-0.1, 0.2, 1.1, 0.8, 5, 18);
         break;
       }
       case 'twin_obelisks':
         for (const x of [-0.5, 1]) {
           block(x, -0.4, x + 0.5, 1.4, 5, 105);
-          polygon(
+          paint(
             [at(x, 1.4, 105), at(x + 0.5, 1.4, 105), at(x + 0.25, 0.5, 143)],
             stone.faceColor,
             stone.lineColor,
@@ -1749,13 +1768,13 @@
         break;
       case 'silent_dome': {
         const p = at(0.5, 0.6, 5);
-        ctx.fillStyle = stone.faceColor;
-        ctx.strokeStyle = stone.lineColor;
-        ctx.beginPath();
-        ctx.ellipse(p.x, p.y, 96 * camera.zoom, 99 * camera.zoom, 0, Math.PI, Math.PI * 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+        pen.fillStyle = stone.faceColor;
+        pen.strokeStyle = stone.lineColor;
+        pen.beginPath();
+        pen.ellipse(p.x, p.y, 96 * zoom, 99 * zoom, 0, Math.PI, Math.PI * 2);
+        pen.closePath();
+        pen.fill();
+        pen.stroke();
         block(-0.8, 0.6, 1.8, 1.2, 5, 15);
         break;
       }

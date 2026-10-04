@@ -26,7 +26,7 @@
     spiral_tower: '螺旋の建造物',
   });
   const RULES = {
-    saveVersion: 9,
+    saveVersion: 10,
     extent: 30,
     maxPoints: 1200,
     recoveryMs: 21600000,
@@ -49,6 +49,7 @@
     monumentMaxDistance: 24,
     monumentProtectionWidth: 1,
     memoOpenedThreshold: 24,
+    memoManualInterval: 24,
     memoDiscoverZoom: 1.55,
     sceneryTypes: SCENERY_TYPES,
     sceneryCount: 50,
@@ -362,7 +363,14 @@
     placeMonument(w);
     placeScenery(w);
     placeRoads(w, m);
-    w.memo = { status: 'waiting', clue: null, monumentId: w.monuments[0].id, asideId: null };
+    w.memo = {
+      status: 'waiting',
+      clue: null,
+      monumentId: w.monuments[0].id,
+      asideId: null,
+    };
+    w.memoHistory = [];
+    w.memoManualOpened = 0;
     chooseDestination(w);
     return validate(w);
   }
@@ -516,6 +524,8 @@
       w.memo.status === 'waiting' &&
       w.tiles.some((tile) => tile.towerOrder === 0 && tile.effectApplied) &&
       w.tiles.filter((tile) => tile.visibility === 'opened').length >= RULES.memoOpenedThreshold;
+    const nextTarget = nextMemoTarget(w);
+    const nextReady = !!nextTarget && w.memoManualOpened >= RULES.memoManualInterval;
     w.points--;
     t.developmentProgress = Math.min(t.requiredCost, t.developmentProgress + developmentPower(w));
     if (t.developmentProgress < t.requiredCost) return 'progress';
@@ -534,7 +544,21 @@
       (p) => !p.reached && monumentStatus(w, p.monument, m).reached,
     );
     const monumentAutomatic = reached ? completeMonument(w, reached.monument, m) : [];
-    const memoPlaced = memoReady && ordinaryMemoTile(w, t);
+    if (nextReady && ordinaryMemoTile(w, t)) {
+      w.memoHistory.push(w.memo);
+      w.memo = {
+        status: 'waiting',
+        clue: null,
+        monumentId: nextTarget.id,
+        asideId: null,
+      };
+      w.memoManualOpened = 0;
+    } else if (nextTarget && !nextReady) {
+      // Only successful manual completions after collection AND arrival count.
+      // Automatic openings and the arrival completion itself never count.
+      w.memoManualOpened++;
+    }
+    const memoPlaced = (memoReady || nextReady) && ordinaryMemoTile(w, t);
     if (memoPlaced) {
       w.memo.status = 'placed';
       w.memo.clue = { x: t.x, y: t.y };
@@ -570,6 +594,19 @@
       reached: opened > 0,
       fullyRevealed: opened === monument.occupied.length,
     };
+  }
+  function nextMemoTarget(w) {
+    if (w.memo.status !== 'collected') return null;
+    const previous = w.monuments.find((object) => object.id === w.memo.monumentId);
+    if (!monumentStatus(w, previous).reached) return null;
+    const issued = new Set([...w.memoHistory, w.memo].map((memo) => memo.monumentId));
+    return (
+      w.monuments
+        .filter((object) => !issued.has(object.id))
+        .sort(
+          (a, b) => distance(previous, a) - distance(previous, b) || a.id.localeCompare(b.id),
+        )[0] || null
+    );
   }
   function ordinaryMemoTile(w, t) {
     return (
@@ -875,11 +912,43 @@
       hash(w.seed, p.x, p.y, hash(w.seed, monument.x, monument.y, 0x631fa927)) % ids.length
     ];
   }
-  function memoAside(w) {
-    return Object.hasOwn(memoAsides, w.memo.asideId) ? memoAsides[w.memo.asideId] : '';
+  function memoAside(w, memo = w.memo) {
+    return Object.hasOwn(memoAsides, memo.asideId) ? memoAsides[memo.asideId] : '';
   }
   function validate(w) {
     validateWorld(w);
+    if (
+      !Array.isArray(w.memoHistory) ||
+      w.memoHistory.length >= w.monuments.length ||
+      !Number.isInteger(w.memoManualOpened) ||
+      w.memoManualOpened < 0 ||
+      w.memoManualOpened > RULES.memoManualInterval ||
+      (w.memoManualOpened > 0 && !nextMemoTarget(w))
+    )
+      throw Error('Invalid memo progression');
+    const targets = new Set([w.memo.monumentId]);
+    const clues = new Set(w.memo.clue ? [key(w.memo.clue.x, w.memo.clue.y)] : []);
+    const m = index(w);
+    for (const memo of w.memoHistory) {
+      const target = memo && w.monuments.find((object) => object.id === memo.monumentId);
+      const clue = memo?.clue && m.get(key(memo.clue.x, memo.clue.y));
+      if (
+        !target ||
+        targets.has(target.id) ||
+        memo.status !== 'collected' ||
+        !monumentStatus(w, target, m).reached ||
+        !clue ||
+        clue.visibility !== 'opened' ||
+        !Number.isInteger(memo.clue.x) ||
+        !Number.isInteger(memo.clue.y) ||
+        !ordinaryMemoTile(w, clue) ||
+        clues.has(key(clue.x, clue.y)) ||
+        !Object.hasOwn(memoAsides, memo.asideId)
+      )
+        throw Error('Invalid memo history');
+      targets.add(target.id);
+      clues.add(key(clue.x, clue.y));
+    }
     if (
       w.memo.status === 'waiting'
         ? w.memo.asideId !== null
