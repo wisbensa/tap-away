@@ -119,7 +119,7 @@
         birdShape:[{x:-3,y:-2},{x:0,y:0},{x:3,y:-2}]
       }
     },
-    lines:{hidden:'#eeeade16',edge:'#4f633a44',eligible:'#75856b',detail:'#466039aa',outline:'48, 65, 40',blockedOutline:'168, 70, 58',openedOutline:'224, 244, 194'},
+    lines:{road:'#c7b181',roadEdge:'#766d5044',hidden:'#eeeade16',edge:'#4f633a44',eligible:'#75856b',detail:'#466039aa',outline:'48, 65, 40',blockedOutline:'168, 70, 58',openedOutline:'224, 244, 194'},
     shadows:{ground:'#62634c12',object:'#34452f18'},
     ui:{textColor:'#263d2e',surfaceColor:'#fffdf5',borderColor:'#778571',hoverColor:'#ecefdf',backdropColor:'#34403666',noticeTextColor:'#ffffff',noticeSurfaceColor:'#263d2e',mapColor:'#ddd6b4'},
     assets:{}
@@ -221,32 +221,11 @@
     repairUi(result.ui,base.ui);
     return result;
   }
-  function parseUiCss(css) {
-    if (typeof css!=='string' || css.length>8192) return null;
-    const source=css.replace(/\/\*[\s\S]*?\*\//g,'').trim();
-    const match=/^:root\s*\{([^{}]*)\}\s*$/.exec(source);
-    if (!match) return null;
-    const allowed=new Set(Object.values(uiVariables)), result={};
-    for(const declaration of match[1].split(';')) {
-      if(!declaration.trim()) continue;
-      const field=/^\s*(--tap-[a-z-]+)\s*:\s*(#[\da-f]+)\s*$/i.exec(declaration);
-      if(!field || !allowed.has(field[1]) || !uiColor(Object.keys(uiVariables).find(key=>uiVariables[key]===field[1]),field[2])) return null;
-      result[field[1]]=field[2];
-    }
-    return result;
-  }
-  function applyUi(skin,css) {
+  function applyUi(skin) {
     if(typeof document==='undefined' || !document.documentElement?.style) return;
     const style=document.documentElement.style;
     for(const variable of Object.values(uiVariables)) style.removeProperty(variable);
     for(const [key,variable] of Object.entries(uiVariables)) style.setProperty(variable,skin.ui[key]);
-    if(css) for(const [variable,value] of Object.entries(css)) style.setProperty(variable,value);
-  }
-  function mergeUiCss(skin,css) {
-    if(!css) return;
-    const before=clone(skin.ui);
-    for(const [key,variable] of Object.entries(uiVariables)) if(Object.hasOwn(css,variable)) skin.ui[key]=css[variable];
-    repairUi(skin.ui,before);
   }
   function selection() {
     try { const value=globalThis.localStorage?.getItem(SELECTION_KEY); return available.some(s=>s.id===value)?value:null; }
@@ -293,31 +272,27 @@
     }));
   }
   let pendingLoad;
-  const api = {current:clone(builtin),available,selection,select,validate,merge,parseUiCss,relativeAssetPath};
+  const api = {current:clone(builtin),available,selection,select,validate,merge,relativeAssetPath};
   async function load() {
-    const results=await Promise.allSettled([read(packageUrl('default','skin.json'),true),read(packageUrl('default','ui.css'),false),read(new URL('config/appearance.json',baseUrl()).href,true)]);
+    const results=await Promise.allSettled([read(packageUrl('default','skin.json'),true),read(new URL('config/appearance.json',baseUrl()).href,true)]);
     const standardPatch=results[0].status==='fulfilled'?resolveAssets(validate(results[0].value),'default'):null;
     const standard=merge(builtin,standardPatch);
-    const css=standardPatch && results[1].status==='fulfilled'?parseUiCss(results[1].value):null;
-    mergeUiCss(standard,css);
-    const configured=results[2].status==='fulfilled'&&plain(results[2].value)?results[2].value.skin:null;
+    const configured=results[1].status==='fulfilled'&&plain(results[1].value)?results[1].value.skin:null;
     let id=selection() || (available.some(s=>s.id===configured)?configured:'default');
     let skin=standard;
     if(id!=='default') {
-      const files=await Promise.allSettled([read(packageUrl(id,'skin.json'),true),read(packageUrl(id,'ui.css'),false)]);
+      const files=await Promise.allSettled([read(packageUrl(id,'skin.json'),true)]);
       const patch=files[0].status==='fulfilled'?resolveAssets(validate(files[0].value),id):null;
       if(patch) {
         skin=merge(standard,patch);
-        const customCss=files[1].status==='fulfilled'?parseUiCss(files[1].value):null;
-        mergeUiCss(skin,customCss);
       } else id='default';
     }
     skin.id=id;skin.label=available.find(s=>s.id===id).label;
     await loadAssets(skin,standard);
     api.current=skin;
-    applyUi(skin,null);
+    applyUi(skin);
     return skin;
   }
-  api.load=()=>pendingLoad || (pendingLoad=load().catch(()=>{api.current=clone(builtin);applyUi(api.current,null);return api.current;}));
+  api.load=()=>pendingLoad || (pendingLoad=load().catch(()=>{api.current=clone(builtin);applyUi(api.current);return api.current;}));
   globalThis.TapSkin=api;
 })();

@@ -119,6 +119,8 @@
     }
   },
   "lines": {
+    "road": "#8c9ca9",
+    "roadEdge": "#111d3655",
     "hidden": "#c7d9f522",
     "edge": "#a4c9df44",
     "eligible": "#b4d8df",

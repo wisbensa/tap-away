@@ -14,6 +14,9 @@
     enclosureStartMs: 180, enclosureStepMs: 150, enclosureFadeMs: 150, maxOpenings: 64,
     towerRingMs: 80, towerFadeMs: 120, memoDisplayMs: 10000, memoMinPixels: 7,
     shadowMinMs:90000, shadowMaxMs:180000, shadowMs:4200, shadowOpacity:.14,
+    shadowHalfWidth:.58, shadowAspect:.32, shadowStartY:.32, shadowDriftY:.3,
+    noticeMs:7000, blockedSinkMs:25, openedSinkMs:40, openedReboundMs:100, openedReboundStrength:.08,
+    roadWidth:7, roadBorderWidth:2, roadPreviewOpacity:.3,
     smallEventCooldownMs:18000, smallEventChance:.12, smallEventMs:1500,
     markerMargin: 36, markerRadius: 28, markerSpacing: 60 };
   const canvas = document.querySelector("#map"), ctx = canvas.getContext("2d");
@@ -31,7 +34,7 @@
   function toast(message) {
     notice.textContent = message;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => notice.textContent = '', 7000);
+    toastTimer = setTimeout(() => notice.textContent = '', CONFIG.noticeMs);
   }
   function loadWorld() {
     try {
@@ -193,9 +196,9 @@
   }
   function shadowGeometry(shadow,now) {
     const progress=clamp((now-shadow.at)/CONFIG.shadowMs,0,1);
-    const spanX=Math.max(width,height)*.58,spanY=spanX*.32,travel=width+spanX*2;
+    const spanX=Math.max(width,height)*CONFIG.shadowHalfWidth,spanY=spanX*CONFIG.shadowAspect,travel=width+spanX*2;
     return {x:shadow.reverse?width+spanX-travel*progress:-spanX+travel*progress,
-      y:height*(.32+.3*progress),spanX,spanY,progress};
+      y:height*(CONFIG.shadowStartY+CONFIG.shadowDriftY*progress),spanX,spanY,progress};
   }
   function drawAtmosphere(now) {
     if(!started||document.hidden) return;
@@ -258,11 +261,11 @@
     if(p===held) return curve(start,CONFIG.contactStrength,velocity,age,CONFIG.contactMs);
     if(p.kind==='complete')return 0;
     const peak=Math.min(1.2,Math.max(1,start));
-    const sink=p.kind==='blocked'?25:p.kind==='opened'?40:CONFIG.sinkMs;
+    const sink=p.kind==='blocked'?CONFIG.blockedSinkMs:p.kind==='opened'?CONFIG.openedSinkMs:CONFIG.sinkMs;
     if(age<sink) return clamp(curve(start,peak,velocity,age,sink),-1.2,Math.max(1.2,start));
     if(p.kind==='blocked') return 1-ease((age-sink)/(CONFIG.blockedMs-sink));
-    const rise=p.kind==='opened'?100:CONFIG.reboundAtMs;
-    const rebound=p.kind==='opened'?-.08:-CONFIG.reboundStrength;
+    const rise=p.kind==='opened'?CONFIG.openedReboundMs:CONFIG.reboundAtMs;
+    const rebound=p.kind==='opened'?-CONFIG.openedReboundStrength:-CONFIG.reboundStrength;
     if(age<rise) return curve(peak,rebound,0,age-sink,rise-sink);
     return curve(rebound,0,0,age-rise,pulseDuration(p)-rise);
   }
@@ -393,6 +396,40 @@
     }
     return null;
   }
+  function roadSegments(tile, now) {
+    if (!tile.road) return [];
+    const state = displayState(tile,now);
+    // Delayed reveals obey the displayed state, including tower visibility waves.
+    if (state.visibility==='hidden' || state.visibility==='preview' && towerFade(tile,now)===0) return [];
+    const neighbors = [[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy]) =>
+      ({dx,dy,tile:tilesByCoordinate.get((tile.x+dx)+','+(tile.y+dy))}));
+    const opened = neighbor => neighbor.tile?.road && displayState(neighbor.tile,now).visibility==='opened';
+    if (state.visibility==='preview') return neighbors.filter(opened);
+    return neighbors.filter(neighbor => neighbor.tile?.road &&
+      (opened(neighbor) || displayState(neighbor.tile,now).visibility==='preview' && towerFade(neighbor.tile,now)>0));
+  }
+  function drawRoad(tile, now) {
+    const segments=roadSegments(tile,now);
+    const state=displayState(tile,now);
+    if(!segments.length && (!tile.road || state.visibility!=='opened')) return;
+    const center=surface(tile.x+.5,tile.y+.5,now,tile);
+    ctx.save();
+    const bounds=corners(tile,now);
+    ctx.beginPath();bounds.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.clip();
+    ctx.globalAlpha=state.visibility==='opened'?1:CONFIG.roadPreviewOpacity;
+    ctx.lineCap='round';ctx.lineJoin='round';
+    for(const [color,width] of [[TapSkin.current.lines.roadEdge,CONFIG.roadWidth+CONFIG.roadBorderWidth*2],[TapSkin.current.lines.road,CONFIG.roadWidth]]) {
+      ctx.strokeStyle=color;ctx.lineWidth=width*camera.zoom;
+      ctx.beginPath();
+      if(!segments.length) {ctx.moveTo(center.x,center.y);ctx.lineTo(center.x+.1*camera.zoom,center.y);}
+      for(const {dx,dy} of segments) {
+        const edge=surface(tile.x+.5+dx*.5,tile.y+.5+dy*.5,now,tile);
+        ctx.moveTo(center.x,center.y);ctx.lineTo(edge.x,edge.y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
   function draw(now) {
     frame = 0;
     // rAF timestamps can precede callback execution during heavy rendering.
@@ -424,6 +461,7 @@
       }
       polygon(pts, tileColor(tile, now), visibility==='hidden'?skin.lines.hidden:skin.lines.edge);
       remember(pts);
+      drawRoad(tile,now);
       if(visibility==='opened' && monumentsByCoordinate.has(x+','+y)) {
         drawMonumentPart(tile,base,now);continue;
       }

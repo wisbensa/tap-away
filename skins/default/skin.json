@@ -2487,6 +2487,8 @@
     }
   },
   "lines": {
+    "road": "#c7b181",
+    "roadEdge": "#766d5044",
     "hidden": "#eeeade16",
     "edge": "#4f633a44",
     "eligible": "#75856b",
