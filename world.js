@@ -3,7 +3,7 @@
 
   const SCENERY_TYPES = ['front_statue', 'leaf_statue', 'dressed_tree', 'front_bird', 'giant_flower', 'symmetric_tree'];
   const RULES = {
-    extent: 30, maxPoints: 700, recoveryMs: 21600000, towerRadius: 5, enclosureLimit: 16,
+    extent: 30, maxPoints: 1200, recoveryMs: 21600000, towerRadius: 5, enclosureLimit: 16,
     costs: {grass: 4, tree: 7, rock: 10, mine: 15},
     // These are initial placement/balance values, not additional gameplay rules.
     monumentMinDistance: 16, monumentMaxDistance: 24, monumentProtectionWidth: 1,
@@ -149,7 +149,7 @@
     if (!finite(now) || !isSeed(seed)) throw Error('Invalid generation input');
     const tiles = [];
     for (let y = -RULES.extent; y <= RULES.extent; y++) for (let x = -RULES.extent; x <= RULES.extent; x++) tiles.push(generateTile(seed, x, y));
-    const w = {saveVersion: 6, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
+    const w = {saveVersion: 7, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
       seed, generatorVersion: 2, points: RULES.maxPoints, resources: {wood: 0, rock: 0, metal: 0},
       facilities: {inn: 0, well: 0, workshop: 0}, destination: null, introduced: false, tiles, monuments: [], scenery: []};
     const m = index(w);
@@ -180,6 +180,12 @@
       applyTowerEffect(w, t);
     }
     // Opened terrain is the production source; production starts in Phase 2.
+  }
+  function completeMonument(w, monument, m) {
+    const entries=monument.occupied.map(p=>m.get(key(p.x,p.y))).filter(t=>t.visibility!=='opened')
+      .map(tile=>({tile,visibility:tile.visibility,progress:tile.developmentProgress}));
+    for(const entry of entries) completeTile(w,entry.tile,m);
+    return entries;
   }
   function enclosedRegions(w, origin, m) {
     const checked = new Set(), protectedKeys = protectedMonumentCoordinates(w), regions = [];
@@ -222,12 +228,14 @@
     const regions = enclosedRegions(w, t, m);
     const automatic = regions.flat().map(tile => ({tile, visibility:tile.visibility, progress:tile.developmentProgress}));
     for (const entry of automatic) completeTile(w, entry.tile, m);
+    const reached=previousMonuments.find(p=>!p.reached&&monumentStatus(w,p.monument,m).reached);
+    const monumentAutomatic=reached?completeMonument(w,reached.monument,m):[];
     const memoPlaced = memoReady && ordinaryMemoTile(w, t);
     if (memoPlaced) {w.memo.status = 'placed'; w.memo.clue = {x: t.x, y: t.y}; w.memo.asideId=chooseMemoAside(w);}
     const monumentReached = previousMonuments.find(p => !p.reached && monumentStatus(w, p.monument, m).reached)?.monument || null;
     const monumentRevealed = previousMonuments.find(p => !p.fullyRevealed && monumentStatus(w, p.monument, m).fullyRevealed)?.monument || null;
     if (t.landmark === 'tower') chooseDestination(w);
-    if (onComplete) onComplete({tile:t, regions, automatic, memoPlaced, monumentReached, monumentRevealed});
+    if (onComplete) onComplete({tile:t, regions, automatic, monumentAutomatic, memoPlaced, monumentReached, monumentRevealed});
     return t.landmark === 'tower' ? 'tower' : 'opened';
   }
   function monumentStatus(w, monument, m = index(w)) {
@@ -275,7 +283,7 @@
   }
   function validateWorld(w, saveVersion) {
     const fail = () => {throw Error('Invalid save data');};
-    if (!w || w.saveVersion !== saveVersion || w.worldVersion !== 1 || w.phase !== 1 || w.generatorVersion !== 2 || !isSeed(w.seed) || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > RULES.maxPoints || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
+    if (!w || w.saveVersion !== saveVersion || w.worldVersion !== 1 || w.phase !== 1 || w.generatorVersion !== 2 || !isSeed(w.seed) || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > (saveVersion<7?700:RULES.maxPoints) || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
     const expectedBounds = bounds();
     if (!w.bounds || Object.keys(expectedBounds).some(k => w.bounds[k] !== expectedBounds[k])) fail();
     const seen = new Set(), ids = new Set(), towers = [], landmarks = [], occupied = new Set();
@@ -353,8 +361,8 @@
     return ids[hash(w.seed,p.x,p.y,hash(w.seed,monument.x,monument.y,0x631fa927))%ids.length];
   }
   function memoAside(w) {return Object.hasOwn(memoAsides, w.memo.asideId) ? memoAsides[w.memo.asideId] : '';}
-  function validate(w) {
-    validateWorld(w, 6);
+  function validate(w, version=7) {
+    validateWorld(w, version);
     if (w.memo.status === 'waiting' ? w.memo.asideId !== null : typeof w.memo.asideId !== 'string' || !Object.hasOwn(memoAsides, w.memo.asideId)) throw Error('Invalid memo aside');
     return w;
   }
@@ -379,14 +387,25 @@
     return w;
   }
   function migrate(w, now = Date.now(), seed) {
-    if (w?.saveVersion === 6) return validate(w);
+    if (w?.saveVersion === 7) return validate(w);
+    if (w?.saveVersion === 6) {
+      validate(w,6);
+      if(!finite(now)) throw Error('Invalid migration time');
+      const migrated=JSON.parse(JSON.stringify(w));
+      migrated.points=Math.min(700,migrated.points+Math.max(0,now-migrated.lastCalculatedAt)*700/RULES.recoveryMs);
+      migrated.lastCalculatedAt=Math.max(now,migrated.lastCalculatedAt);
+      migrated.saveVersion=7;
+      const m=index(migrated);
+      for(const monument of migrated.monuments) if(monumentStatus(migrated,monument,m).reached) completeMonument(migrated,monument,m);
+      return validate(migrated);
+    }
     if (w?.saveVersion === 5) {
       validateWorld(w,5);
       const migrated=JSON.parse(JSON.stringify(w));
       migrated.saveVersion=6;
       // Fill only absent legacy IDs; loading never places or collects a note.
       if (!Object.hasOwn(migrated.memo, 'asideId')) migrated.memo.asideId = migrated.memo.status === 'waiting' ? null : chooseMemoAside(migrated);
-      return validate(migrated);
+      return migrate(migrated,now,seed);
     }
     if (w?.saveVersion === 4) {
       validateWorld(w, 4);
@@ -395,7 +414,7 @@
       // Version 4 replaced the tower marker with the memo target. Restore only
       // that hidden tower guide; all land, progress and event data remain saved.
       if (migrated.destination && index(migrated).get(key(migrated.destination.x, migrated.destination.y)).landmark !== 'tower') chooseDestination(migrated);
-      return migrate(migrated);
+      return migrate(migrated,now,seed);
     }
     if (w?.saveVersion === 3) {
       validateWorld(w, 3);
@@ -403,7 +422,7 @@
       const migrated = JSON.parse(JSON.stringify(w));
       migrated.saveVersion = 5;
       migrated.memo = {status: 'waiting', clue: null, monumentId: migrated.monuments[0].id};
-      return migrate(migrated);
+      return migrate(migrated,now,seed);
     }
     validateLegacy(w);
     // The specification authorizes this one fixed-map transition to start a new world.

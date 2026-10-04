@@ -6,6 +6,8 @@
     sinkMs: 65, contactMs: 35, contactStrength: .15, reboundAtMs: 230, reboundStrength: .12,
     pressDepth: 3.5, minPressPixels: 3.5, pressDarkening: 16,
     blockedPixels: 1, blockedMs: 130, blockedDarkening: 3,
+    openedPixels:1.5, openedMs:180, openedBrightening:8,
+    emptyNoticeCooldownMs:7000, monumentStepMs:100,
     outlineWidth: 2, minOutlinePixels: 2, colorHoldMs: 65, colorReturnMs: 180, maxPulses: 32, soundVolume: .12,
     completionMs: 420, completionRevealMs: 300, completionEdgeMs: 360,
     waveRadius: 2, waveDelayMs: 75, waveMs: 230, waveOpacity: .5,
@@ -23,7 +25,7 @@
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const heightAt = (x, y) => .55 + .27 * Math.sin(x * .68 + y * .36) + .2 * Math.cos(y * .8 - x * .22);
   const SAVE_KEY='tap-away.world.v1';
-  let world,saveBlocked=false,saveTimer=0,toastTimer=0,memoTimer=0,started=false,needsInitialSave=false,legacyReset=false;
+  let world,saveBlocked=false,saveTimer=0,toastTimer=0,memoTimer=0,started=false,needsInitialSave=false,legacyReset=false,emptyNoticeAt=-Infinity;
   const memoPanel=document.querySelector('#memo-panel'), memoReview=document.querySelector('#memo-review');
   const SAVE_LOAD_ERROR = "セーブを読み込めません。元データを保持しています。この回の進行は保存されません。";
   function toast(message) {
@@ -103,11 +105,7 @@
       'この場所は、もう見つけていた。':'★の先に、描かれた場所がある。';
     const picture=document.querySelector('#memo-picture'), pen=picture.getContext('2d'), skin=TapSkin.current;
     pen.clearRect(0,0,picture.width,picture.height);
-    pen.strokeStyle=skin.objects.memo.inkColor;pen.lineWidth=2;pen.lineJoin='round';
-    pen.beginPath();pen.moveTo(22,86);pen.lineTo(22,59);pen.bezierCurveTo(22,8,158,8,158,59);pen.lineTo(158,86);
-    pen.lineTo(128,86);pen.lineTo(128,60);pen.bezierCurveTo(128,36,52,36,52,60);pen.lineTo(52,86);pen.closePath();pen.stroke();
-    pen.beginPath();pen.moveTo(12,91);pen.lineTo(171,91);pen.moveTo(91,25);pen.lineTo(91,42);
-    pen.moveTo(35,43);pen.lineTo(59,52);pen.moveTo(145,43);pen.lineTo(121,52);pen.stroke();
+    drawArch(pen,90,86,1,true);
     memoPanel.hidden=false;clearTimeout(memoTimer);memoTimer=setTimeout(closeMemo,CONFIG.memoDisplayMs);requestDraw();
   }
   document.querySelector('#memo-close').addEventListener('click',closeMemo);
@@ -254,17 +252,17 @@
     const t=clamp(age/duration,0,1);
     return (2*t*t*t-3*t*t+1)*from+(t*t*t-2*t*t+t)*duration*velocity+(-2*t*t*t+3*t*t)*to;
   }
-  function pulseDuration(p) { return p.kind==='blocked'?CONFIG.blockedMs:p.kind==='complete'?CONFIG.completionMs:CONFIG.reactionMs; }
+  function pulseDuration(p) { return p.kind==='blocked'?CONFIG.blockedMs:p.kind==='opened'?CONFIG.openedMs:p.kind==='complete'?CONFIG.completionMs:CONFIG.reactionMs; }
   function reaction(p, now) {
     const age=Math.max(0,now-p.at), start=p.start??CONFIG.contactStrength, velocity=p.velocity||0;
     if(p===held) return curve(start,CONFIG.contactStrength,velocity,age,CONFIG.contactMs);
     if(p.kind==='complete')return 0;
     const peak=Math.min(1.2,Math.max(1,start));
-    const sink=p.kind==='blocked'?25:CONFIG.sinkMs;
+    const sink=p.kind==='blocked'?25:p.kind==='opened'?40:CONFIG.sinkMs;
     if(age<sink) return clamp(curve(start,peak,velocity,age,sink),-1.2,Math.max(1.2,start));
     if(p.kind==='blocked') return 1-ease((age-sink)/(CONFIG.blockedMs-sink));
-    const rise=CONFIG.reboundAtMs;
-    const rebound=-CONFIG.reboundStrength;
+    const rise=p.kind==='opened'?100:CONFIG.reboundAtMs;
+    const rebound=p.kind==='opened'?-.08:-CONFIG.reboundStrength;
     if(age<rise) return curve(peak,rebound,0,age-sink,rise-sink);
     return curve(rebound,0,0,age-rise,pulseDuration(p)-rise);
   }
@@ -273,14 +271,14 @@
     const p=tilePulse(tile);
     if(!p) return 0;
     if(p===held) return clamp(reaction(p,now),0,1);
-    const age=Math.max(0,now-p.at), end=p.kind==='blocked'?CONFIG.blockedMs:CONFIG.colorReturnMs;
+    const age=Math.max(0,now-p.at), end=p.kind==='blocked'?CONFIG.blockedMs:p.kind==='opened'?CONFIG.openedMs:CONFIG.colorReturnMs;
     return age<CONFIG.colorHoldMs?clamp(reaction(p,now),0,1):1-ease((age-CONFIG.colorHoldMs)/(end-CONFIG.colorHoldMs));
   }
   function outlineStrength(tile, now) {
     if(tilePulse(tile)?.kind==='complete')return 0;
-    return feedbackStrength(tile,now)*(tilePulse(tile)?.kind==='blocked'?.3:1);
+    return feedbackStrength(tile,now);
   }
-  function pulseDepth(p) { return p.kind==='blocked'?CONFIG.blockedPixels/camera.zoom:Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom); }
+  function pulseDepth(p) { return p.kind==='blocked'?CONFIG.blockedPixels/camera.zoom:p.kind==='opened'?CONFIG.openedPixels/camera.zoom:Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom); }
   function displacement(x, y, now) {
     const tile=tilesByCoordinate.get(Math.floor(x)+','+Math.floor(y)), p=tile&&tilePulse(tile);
     const result=p?pulseDepth(p)*reaction(p,now):0;
@@ -309,7 +307,7 @@
   }
   function tileColor(tile, now) {
     const kind=tilePulse(tile)?.kind;
-    const darkening=(kind==='blocked'?CONFIG.blockedDarkening:kind==='complete'?0:CONFIG.pressDarkening)*feedbackStrength(tile,now);
+    const darkening=(kind==='blocked'?CONFIG.blockedDarkening:kind==='opened'?-CONFIG.openedBrightening:kind==='complete'?0:CONFIG.pressDarkening)*feedbackStrength(tile,now);
     const palette=TapSkin.current.palette;
     const display=displayState(tile,now);
     let color=terrainColor(tile,display.visibility,display.progress);
@@ -333,7 +331,7 @@
   function displayState(tile,now) {
     const opening=openings.get(tile.x+','+tile.y);
     if(opening?.automatic) {
-      const reveal=ease((now-opening.at)/CONFIG.enclosureFadeMs);
+      const reveal=ease((now-opening.at)/(opening.monument?CONFIG.completionRevealMs:CONFIG.enclosureFadeMs));
       if(reveal<1) return {visibility:opening.visibility,progress:opening.progress,reveal};
     }
     return {visibility:tile.visibility,progress:tile.developmentProgress};
@@ -370,6 +368,8 @@
     }
     if(tile.visibility==='opened'&&monumentsByCoordinate.has(tile.x+','+tile.y)) {
       points.push(...pts.map(p=>({x:p.x,y:p.y-120*camera.zoom})));
+      const archBase=surface(tile.x+.5,tile.y+.5,performance.now());
+      points.push({x:archBase.x-110*camera.zoom,y:archBase.y-130*camera.zoom},{x:archBase.x+110*camera.zoom,y:archBase.y});
       const monument=monumentsByCoordinate.get(tile.x+','+tile.y),bitmap=skin.assets.stone_arch;
       if(bitmap?.image) {
         const center=surface(monument.x+.5,monument.y+.5,performance.now());
@@ -399,7 +399,7 @@
     now=Math.max(now,performance.now());
     for(let i=pulses.length-1;i>=0;i--) if(now-pulses[i].at>=pulseDuration(pulses[i])) pulses.splice(i,1);
     for(const [key,reveal] of towerReveals) if(now>=reveal.at+CONFIG.towerFadeMs) towerReveals.delete(key);
-    for(const [key,opening] of openings) if(now>=opening.at+(opening.automatic?CONFIG.enclosureFadeMs:CONFIG.completionMs)) openings.delete(key);
+    for(const [key,opening] of openings) if(now>=opening.at+(opening.monument?CONFIG.completionRevealMs:opening.automatic?CONFIG.enclosureFadeMs:CONFIG.completionMs)) openings.delete(key);
     const skin=TapSkin.current;
     ctx.clearRect(0, 0, width, height);
     hitAreas.length = 0;
@@ -480,6 +480,7 @@
     // Completion stays in the tile plane: the cover retreats from its center.
     for(const opening of openings.values()) if(!opening.automatic)
       drawOpeningCover(opening.tile,corners(opening.tile,now),surface(opening.tile.x+.5,opening.tile.y+.5,now),now);
+    for(const monument of world.monuments) drawMonument(monument,now);
     drawAtmosphere(now);
     drawCompletionEdges(now);
     drawMemoClue(now);
@@ -498,67 +499,52 @@
       ctx.beginPath();
       corners(tile, now).forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
       ctx.closePath();
-      ctx.strokeStyle = `rgba(${skin.lines.outline}, ${strength * .85})`;
+      const kind=tilePulse(tile)?.kind;
+      ctx.strokeStyle = `rgba(${kind==='blocked'?skin.lines.blockedOutline:kind==='opened'?skin.lines.openedOutline:skin.lines.outline}, ${strength * .85})`;
       ctx.lineWidth = Math.max(CONFIG.minOutlinePixels, CONFIG.outlineWidth * camera.zoom);
       ctx.lineJoin = "round";
       ctx.stroke();
     }
     if (pulses.length || towerReveals.size || openings.size || held || atmosphere.shadow || atmosphere.small) requestDraw();
   }
+  // The memo and the map share the same arch silhouette and open passage.
+  function drawArch(pen,x,y,scale,inkOnly=false) {
+    const object=TapSkin.current.objects.stone_arch;
+    const path=()=>{
+      pen.beginPath();pen.moveTo(-68,0);pen.lineTo(-68,-27);
+      pen.bezierCurveTo(-68,-78,68,-78,68,-27);pen.lineTo(68,0);
+      pen.lineTo(38,0);pen.lineTo(38,-26);
+      pen.bezierCurveTo(38,-50,-38,-50,-38,-26);pen.lineTo(-38,0);pen.closePath();
+    };
+    pen.save();pen.translate(x,y);pen.scale(scale,scale);pen.lineJoin='round';
+    pen.strokeStyle=inkOnly?TapSkin.current.objects.memo.inkColor:object.lineColor;pen.lineWidth=inkOnly?2:1.2;
+    if(!inkOnly) {pen.save();pen.translate(8,-8);path();pen.fillStyle=object.shadeColor;pen.fill();pen.stroke();pen.restore();}
+    path();if(!inkOnly){pen.fillStyle=object.faceColor;pen.fill();}pen.stroke();
+    pen.beginPath();pen.moveTo(-78,5);pen.lineTo(78,5);
+    pen.moveTo(0,-65);pen.lineTo(0,-45);pen.moveTo(-55,-43);pen.lineTo(-34,-31);
+    pen.moveTo(55,-43);pen.lineTo(34,-31);pen.moveTo(-68,-14);pen.lineTo(-38,-14);
+    pen.moveTo(38,-14);pen.lineTo(68,-14);pen.stroke();pen.restore();
+  }
   function drawMonumentPart(tile,base,now) {
     const monument=monumentsByCoordinate.get(tile.x+','+tile.y);
     if(!monument || tile.visibility!=='opened') return;
-    const object=TapSkin.current.objects.stone_arch, z=camera.zoom;
-    const turn=(u,v)=> {
-      for(let i=0;i<monument.orientation;i++) [u,v]=[-v,u];
-      return {x:monument.x+.5+u,y:monument.y+.5+v};
-    };
-    let u=tile.x-monument.x,v=tile.y-monument.y;
-    for(let i=0;i<monument.orientation;i++) [u,v]=[v,-u];
-    const point=(a,b,h=0)=>{
-      const p=turn(a,b);
-      return project(p.x,p.y,heightAt(p.x,p.y)*CONFIG.heightScale+h-displacement(tile.x+.5,tile.y+.5,now));
-    };
-    const opening=openings.get(tile.x+','+tile.y);
+    const object=TapSkin.current.objects.stone_arch,opening=openings.get(tile.x+','+tile.y);
     ctx.save();
-    if(opening) ctx.globalAlpha=completionReveal(opening,now);
-    polygon([point(u-.46,v-.46,3),point(u+.46,v-.46,3),point(u+.46,v+.46,3),point(u-.46,v+.46,3)],object.baseColor,object.lineColor);
-    // Each saved occupied tile owns one slice. No unopened slice is painted.
-    const asset=TapSkin.current.assets.stone_arch;
-    if(asset?.image) {
-      const center=surface(monument.x+.5,monument.y+.5,now);
-      const left=center.x-asset.anchorX*z,top=center.y-asset.anchorY*z;
-      const column=tile.x-monument.x+1,row=tile.y-monument.y+1;
-      ctx.beginPath();ctx.rect(left+column*asset.width*z/3,top+row*asset.height*z/3,asset.width*z/3,asset.height*z/3);ctx.clip();
-      drawAsset('stone_arch',center,ctx.globalAlpha);ctx.restore();return;
-    }
-    const lo=u-.5,hi=u+.5,outer=a=>20+96*Math.sqrt(Math.max(0,1-(a/1.48)**2));
-    const inner=a=>Math.abs(a)<.96?13+62*Math.sqrt(Math.max(0,1-(a/.96)**2)):3;
-    const top=[];
-    for(let i=0;i<=12;i++) {const a=lo+(hi-lo)*i/12;top.push(point(a,v+.5,outer(a)));}
-    const rear=[];
-    for(let i=12;i>=0;i--) {const a=lo+(hi-lo)*i/12;rear.push(point(a,v-.5,outer(a)));}
-    // The rows extend one roof; its near end owns the visible arch face.
-    // This makes a single deep structure as its nine ground slices are uncovered.
-    polygon([...top,...rear],object.shadeColor,object.lineColor);
-    if(u!==0) {
-      const side=u<0?lo:hi;
-      polygon([point(side,v-.5,3),point(side,v+.5,3),point(side,v+.5,outer(side)),point(side,v-.5,outer(side))],object.shadeColor,object.lineColor);
-    }
-    const frontFace=monument.orientation===0&&v===1 || monument.orientation===2&&v===-1;
-    if(frontFace) {
-      const faceTop=[],faceBottom=[],edge=v+Math.sign(v)*.5;
-      for(let i=0;i<=12;i++) {const a=lo+(hi-lo)*i/12;faceTop.push(point(a,edge,outer(a)));faceBottom.unshift(point(a,edge,inner(a)));}
-      polygon([...faceTop,...faceBottom],object.faceColor,object.lineColor);
-    }
-    ctx.strokeStyle=object.lineColor;ctx.lineWidth=Math.max(.8,z);
-    ctx.beginPath();
-    for(const a of [lo+(hi-lo)*.32,lo+(hi-lo)*.7]) {
-      const edge=frontFace?v+Math.sign(v)*.5:v+.5;
-      const from=point(a,frontFace?edge:v-.5,frontFace?inner(a):outer(a)),to=point(a,edge,outer(a));
-      ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);
-    }
-    ctx.stroke();ctx.restore();
+    if(opening) ctx.globalAlpha=opening.automatic?ease((now-opening.at)/(opening.monument?CONFIG.completionRevealMs:CONFIG.enclosureFadeMs)):completionReveal(opening,now);
+    const pts=corners(tile,now);
+    polygon(pts,object.baseColor,object.lineColor);ctx.restore();
+  }
+  function drawMonument(monument,now) {
+    if(!TapWorld.monumentStatus(world,monument,tilesByCoordinate).fullyRevealed)return;
+    // Paint the shared silhouette after the ground so neither pillar is covered by a later tile.
+    const base=surface(monument.x+.5,monument.y+1.5,now);
+    const pending=monument.occupied.map(p=>openings.get(p.x+','+p.y)).filter(Boolean);
+    const revealAt=pending.length?Math.max(...pending.map(e=>e.at)):null;
+    const alpha=revealAt===null?1:ease((now-revealAt)/CONFIG.completionRevealMs);
+    if(alpha<=0)return;
+    ctx.save();ctx.globalAlpha=alpha;
+    if(!drawAsset('stone_arch',base,alpha))drawArch(ctx,base.x,base.y,CONFIG.tileWidth*camera.zoom*2.4/136);
+    ctx.restore();
   }
   function drawMemoClue(now) {
     if(world.memo.status!=='placed') return;
@@ -699,9 +685,9 @@
     const localX = clamp((p.x-base.x) / (CONFIG.tileWidth*zoom),-.4,.4);
     const localY = clamp((p.y-base.y) / (CONFIG.tileHeight*zoom),-.4,.4);
     const now=performance.now(), previous=tilePulse(tile);
-    const kind=tile.visibility==='opened'||canDevelop(tile)?'normal':'blocked';
-    const start=previous?reaction(previous,now)*pulseDepth(previous)/(kind==='blocked'?CONFIG.blockedPixels/camera.zoom:Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom)):CONFIG.contactStrength;
-    const velocity=previous?(reaction(previous,now+.1)-reaction(previous,now))/.1*pulseDepth(previous)/(kind==='blocked'?CONFIG.blockedPixels/camera.zoom:Math.max(CONFIG.pressDepth,CONFIG.minPressPixels/camera.zoom)):0;
+    const kind=tile.visibility==='opened'?'opened':canDevelop(tile)?'normal':'blocked';
+    const start=previous?reaction(previous,now)*pulseDepth(previous)/pulseDepth({kind}):CONFIG.contactStrength;
+    const velocity=previous?(reaction(previous,now+.1)-reaction(previous,now))/.1*pulseDepth(previous)/pulseDepth({kind}):0;
     const old=pulses.findIndex(entry=>entry.tile===tile);if(old>=0)pulses.splice(old,1);
     held = {x:tile.x+.5+localX,y:tile.y+.5+localY,tile,kind,at:now,start,velocity};
     // Touching an already opened automatic tile must show its current logical state.
@@ -723,6 +709,10 @@
         openings.set(entry.tile.x+','+entry.tile.y,{...entry,automatic:true,at:now+CONFIG.enclosureStartMs+layers.get(entry.tile)*CONFIG.enclosureStepMs});
       }
     }
+    for(const entry of result.monumentAutomatic) {
+      const distance=Math.abs(entry.tile.x-tile.x)+Math.abs(entry.tile.y-tile.y);
+      openings.set(entry.tile.x+','+entry.tile.y,{...entry,automatic:true,monument:true,at:now+distance*CONFIG.monumentStepMs});
+    }
     while(openings.size>CONFIG.maxOpenings) openings.delete(openings.keys().next().value);
   }
   function releasePress(commit) {
@@ -734,8 +724,8 @@
       let completion=null,memo=null;
       const result=held.tile.visibility==='opened'?
         ((memo=TapWorld.collectMemo(world,held.tile,camera.zoom))?'memo':'touch'):
-        !canDevelop(held.tile)?'blocked':TapWorld.develop(world,held.tile,Date.now(),entry=>{completion=entry;animateCompletion(entry,now,progress);});
-      const kind=result==='blocked'||result==='empty'?'blocked':result==='opened'||result==='tower'?'complete':'normal';
+        !TapWorld.eligible(held.tile,tilesByCoordinate)?'blocked':TapWorld.develop(world,held.tile,Date.now(),entry=>{completion=entry;animateCompletion(entry,now,progress);});
+      const kind=result==='blocked'||result==='empty'?'blocked':result==='opened'||result==='tower'?'complete':result==='touch'||result==='memo'?'opened':'normal';
       if(result!=='blocked'&&result!=='empty')towerReveals.delete(held.tile.x+','+held.tile.y);
       if(result==='tower') {
         for(const tile of hidden) if(tile.visibility==='preview') {
@@ -744,8 +734,11 @@
         }
         toast(world.destination?'古い塔から視界が広がりました。次の★の塔へ進んでみましょう。':'5つの塔を開拓しました。気の向くままに地図を広げましょう。');
       }
-      if(completion?.monumentReached)toast('大きな石のアーチを見つけました。周りの土地を開くと、全体が見えてきます。');
-      if(completion?.monumentRevealed)toast('石のアーチの全体が姿を現しました。地図は、まだ広げていけます。');
+      if(completion?.monumentReached)toast('大きな石のアーチを見つけました。周りの土地が広がり、全体が姿を現します。');
+      if(result==='empty'&&now-emptyNoticeAt>=CONFIG.emptyNoticeCooldownMs) {
+        emptyNoticeAt=now;
+        toast('探索ポイントが足りないため開拓できません。しばらく待つと回復します。');
+      }
       if(result==='opened'||result==='tower'||result==='memo')save();
       else if(result==='progress')queueSave();
       if(memo)showMemo(memo.alreadyReached);

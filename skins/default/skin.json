@@ -140,7 +140,7 @@
       "body":[{"x":-9,"y":0},{"x":9,"y":0},{"x":7,"y":-56},{"x":-7,"y":-56}]
     }
   },
-  "lines":{"hidden":"#eeeade16","edge":"#657d4b22","eligible":"#75856b","detail":"#70864e88","outline":"48, 65, 40"},
+  "lines":{"hidden":"#eeeade16","edge":"#657d4b22","eligible":"#75856b","detail":"#70864e88","outline":"48, 65, 40","blockedOutline":"168, 70, 58","openedOutline":"224, 244, 194"},
   "shadows":{"ground":"#62634c12","object":"#455e3f21"},
   "ui":{"textColor":"#263d2e","surfaceColor":"#fffdf5","borderColor":"#778571","hoverColor":"#ecefdf","backdropColor":"#34403666","noticeTextColor":"#ffffff","noticeSurfaceColor":"#263d2e","mapColor":"#eeeade"},
   "assets": {}

@@ -118,7 +118,7 @@
         birdShape:[{x:-3,y:-2},{x:0,y:0},{x:3,y:-2}]
       }
     },
-    lines:{hidden:'#eeeade16',edge:'#657d4b22',eligible:'#75856b',detail:'#70864e88',outline:'48, 65, 40'},
+    lines:{hidden:'#eeeade16',edge:'#657d4b22',eligible:'#75856b',detail:'#70864e88',outline:'48, 65, 40',blockedOutline:'168, 70, 58',openedOutline:'224, 244, 194'},
     shadows:{ground:'#62634c12',object:'#455e3f21'},
     ui:{textColor:'#263d2e',surfaceColor:'#fffdf5',borderColor:'#778571',hoverColor:'#ecefdf',backdropColor:'#34403666',noticeTextColor:'#ffffff',noticeSurfaceColor:'#263d2e',mapColor:'#eeeade'},
     assets:{}
@@ -189,7 +189,7 @@
             } else if (color(candidate)) object[field]=candidate;
           }
           result[section][key]=object;
-        } else if (section==='ui' ? uiColor(key,value) : section==='lines' && key==='outline' ? rgb(value) : color(value)) result[section][key]=value;
+        } else if (section==='ui' ? uiColor(key,value) : section==='lines' && ['outline','blockedOutline','openedOutline'].includes(key) ? rgb(value) : color(value)) result[section][key]=value;
       }
     }
     if (plain(input.assets)) {
