@@ -95,25 +95,26 @@
   function placeRoads(w, m) {
     const blocked = new Set(['0,0', ...w.tiles.filter(t => t.landmark).map(t => key(t.x,t.y)),
       ...w.monuments.flatMap(o => o.occupied).map(p => key(p.x,p.y)), ...w.scenery.map(p => key(p.x,p.y))]);
-    const adjacent = p => [[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy]) => m.get(key(p.x+dx,p.y+dy))).filter(t => t && !blocked.has(key(t.x,t.y)));
+    const adjacent = p => [[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy]) => m.get(key(p.x+dx,p.y+dy))).filter(t => t && t.kind === 'grass' && !blocked.has(key(t.x,t.y)));
     const named = kind => w.tiles.find(t => t.landmark === kind);
     const ends = [{x: 0, y: 0}, named('spring'), named('ruins'), w.tiles.find(t => t.towerOrder === 4)];
     const starts = adjacent(ends[0]);
     let start = starts[hash(w.seed,0,0,SALT.road) % starts.length];
-    // Deterministic shortest paths stop beside objects and avoid occupied cells.
+    // Stay on existing grass; unreachable destinations stop at the closest reachable cell.
     for (let i = 1; i < ends.length; i++) {
       const targets = new Set(adjacent(ends[i]).map(t => key(t.x,t.y)));
       const queue = [start], previous = new Map([[key(start.x,start.y), null]]);
-      let end = null;
+      let end = start;
+      const remaining = t => Math.abs(t.x - ends[i].x) + Math.abs(t.y - ends[i].y);
       for (let n = 0; n < queue.length; n++) {
         const tile = queue[n], tileKey = key(tile.x,tile.y);
+        if (remaining(tile) < remaining(end)) end = tile;
         if (targets.has(tileKey)) {end = tile; break;}
         for (const next of adjacent(tile)) {
           const nextKey = key(next.x,next.y);
           if (!previous.has(nextKey)) {previous.set(nextKey,tileKey); queue.push(next);}
         }
       }
-      if (!end) throw Error('Cannot connect road endpoints');
       for (let p = key(end.x,end.y); p !== null; p = previous.get(p)) m.get(p).road = true;
       start = end;
     }
@@ -161,7 +162,7 @@
     const tiles = [];
     for (let y = -RULES.extent; y <= RULES.extent; y++) for (let x = -RULES.extent; x <= RULES.extent; x++) tiles.push(generateTile(seed, x, y));
     const w = {saveVersion: 7, worldVersion: 1, phase: 1, savedAt: now, lastCalculatedAt: now, bounds: bounds(),
-      seed, generatorVersion: 3, points: RULES.maxPoints, resources: {wood: 0, rock: 0, metal: 0},
+      seed, generatorVersion: 4, points: RULES.maxPoints, resources: {wood: 0, rock: 0, metal: 0},
       facilities: {inn: 0, well: 0, workshop: 0}, destination: null, introduced: false, tiles, monuments: [], scenery: []};
     const m = index(w);
     placeLandmarks(w, m);
@@ -294,7 +295,7 @@
   }
   function validateWorld(w, saveVersion) {
     const fail = () => {throw Error('Invalid save data');};
-    if (!w || w.saveVersion !== saveVersion || w.worldVersion !== 1 || w.phase !== 1 || ![2,3].includes(w.generatorVersion) || !isSeed(w.seed) || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > (saveVersion<7?700:RULES.maxPoints) || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
+    if (!w || w.saveVersion !== saveVersion || w.worldVersion !== 1 || w.phase !== 1 || ![2,3,4].includes(w.generatorVersion) || !isSeed(w.seed) || !finite(w.savedAt) || !finite(w.lastCalculatedAt) || !finite(w.points) || w.points < 0 || w.points > (saveVersion<7?700:RULES.maxPoints) || typeof w.introduced !== 'boolean' || !Array.isArray(w.tiles) || w.tiles.length !== 3721) fail();
     const expectedBounds = bounds();
     if (!w.bounds || Object.keys(expectedBounds).some(k => w.bounds[k] !== expectedBounds[k])) fail();
     const seen = new Set(), ids = new Set(), towers = [], landmarks = [], occupied = new Set();
