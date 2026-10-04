@@ -2,6 +2,7 @@
   'use strict';
   // Initial visual tuning; final touch feel and exploration are checked on real devices.
   const CONFIG = {
+    developmentBuild: true,
     tileWidth: 76,
     tileHeight: 72,
     heightScale: 15,
@@ -58,6 +59,7 @@
     shadowStartY: 0.32,
     shadowDriftY: 0.3,
     noticeMs: 7000,
+    noticeMergeMs: 40,
     blockedSinkMs: 25,
     openedSinkMs: 40,
     openedReboundMs: 100,
@@ -107,9 +109,74 @@
     suspended = false,
     resumeGains = null,
     emptyNoticeAt = -Infinity;
+  let toastAt = -Infinity;
   const memoPanel = document.querySelector('#memo-panel'),
     memoReview = document.querySelector('#memo-review');
   const townPanel = document.querySelector('#town-panel');
+  const settingsPanel = document.querySelector('#settings-panel');
+  function closeSettings() {
+    settingsPanel.hidden = true;
+    document.querySelector('#settings').setAttribute('aria-expanded', 'false');
+    requestDraw();
+  }
+  document.querySelector('#settings').addEventListener('click', () => {
+    const opening = settingsPanel.hidden;
+    closeSettings();
+    if (opening) {
+      settingsPanel.hidden = false;
+      document.querySelector('#settings').setAttribute('aria-expanded', 'true');
+    }
+  });
+  document.querySelector('#settings-close').addEventListener('click', closeSettings);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeSettings();
+  });
+  document.querySelector('#development-tools').hidden = !CONFIG.developmentBuild;
+  let highlightTown = false;
+  const resourceLabels = { wood: '木', rock: '岩', metal: '金属' };
+  function affordable(id) {
+    const cost = TapWorld.facilityCost(world, id);
+    return !!cost && Object.keys(cost).every((k) => world.resources[k] >= cost[k]);
+  }
+  function learn() {
+    if (!started || saveBlocked || suspended) return;
+    const learning = world.learning,
+      messages = [];
+    const kinds = ['tree', 'rock', 'mine'].filter(
+      (kind) =>
+        !learning.resources.includes(kind) &&
+        world.tiles.some((t) => t.kind === kind && t.visibility === 'opened'),
+    );
+    if (kinds.length) {
+      const first = learning.resources.length === 0;
+      const labels = { tree: ['森', '木'], rock: ['岩場', '岩'], mine: ['鉱山', '金属'] };
+      for (const kind of kinds) {
+        learning.resources.push(kind);
+        messages.push(
+          labels[kind][0] + 'を開拓。ここから' + labels[kind][1] + 'が少しずつ生産される。',
+        );
+      }
+      if (first) messages.push('ゲームを閉じている間も生産する（最大12時間分）。');
+    }
+    if (learning.town === 'waiting') {
+      if (Object.values(world.facilities).some((level) => level > 0)) learning.town = 'done';
+      else if (Object.keys(facilityNames).some(affordable)) {
+        learning.town = townPanel.hidden ? 'guiding' : 'done';
+        highlightTown = !townPanel.hidden;
+        messages.push(
+          townPanel.hidden
+            ? '街で施設を建設・強化できそうだ。街をタップしてみよう。'
+            : '建設できる施設を選んで、街を育てられます。',
+        );
+      }
+      if (learning.town !== 'waiting') queueSave();
+    }
+    if (messages.length) {
+      toast(messages.join('\n'));
+      queueSave();
+      requestDraw();
+    }
+  }
   const facilityNames = { inn: '宿屋', well: '井戸', workshop: '工房' };
   function facilityEffect(id, level) {
     if (id === 'inn') return '探索上限 ' + TapWorld.maximumPoints(world, level);
@@ -118,19 +185,47 @@
   }
   function updateTown() {
     const rates = TapWorld.productionRates(world);
-    document.querySelector('#production').textContent =
-      '生産／時間：木 ' + rates.wood + '　岩 ' + rates.rock + '　金属 ' + rates.metal;
+    document.querySelector('#production').textContent = Object.keys(resourceLabels)
+      .map((k) => resourceLabels[k] + ' +' + rates[k] + '/h')
+      .join('　');
+    document.querySelector('#town-resources').textContent =
+      document.querySelector('#resources').textContent;
+    const total = Object.values(world.facilities).reduce((a, b) => a + b, 0);
+    document.querySelector('#town-state').textContent =
+      total >= CONFIG.cityTownFacilityLevels
+        ? '育った街'
+        : total >= CONFIG.cityVillageFacilityLevels
+          ? '小さな村'
+          : '小さな街';
     for (const id of Object.keys(facilityNames)) {
       const level = world.facilities[id],
         cost = TapWorld.facilityCost(world, id);
-      document.querySelector('#' + id + '-level').textContent = facilityNames[id] + ' Lv' + level;
+      document.querySelector('#' + id + '-level').textContent =
+        facilityNames[id] + (level ? ' Lv' + level : '（未建設）');
       document.querySelector('#' + id + '-effect').textContent =
         facilityEffect(id, level) + (cost ? ' → ' + facilityEffect(id, level + 1) : '（上限）');
       document.querySelector('#' + id + '-cost').textContent = cost
         ? '必要：木 ' + cost.wood + '　岩 ' + cost.rock + '　金属 ' + cost.metal
         : '最大レベルです';
       const button = document.querySelector('#upgrade-' + id);
-      button.textContent = cost ? (level === 0 ? '建設する' : 'レベルアップ') : '上限';
+      const missing = cost ? Object.keys(cost).filter((k) => world.resources[k] < cost[k]) : [];
+      const card = button.closest('.facility');
+      card.classList.toggle('guided', highlightTown && affordable(id));
+      if (missing.length)
+        document.querySelector('#' + id + '-cost').textContent +=
+          '（不足：' +
+          missing
+            .map((k) => resourceLabels[k] + ' ' + Math.ceil(cost[k] - world.resources[k]))
+            .join('・') +
+          '）';
+      button.textContent = cost
+        ? facilityNames[id] +
+          (level === 0 ? 'を建てる' : 'を強化する') +
+          ' → Lv' +
+          (level + 1) +
+          (missing.length ? '' : level === 0 ? '（建設できる）' : '（強化できる）')
+        : '上限到達';
+      button.hidden = !cost;
       button.disabled =
         !cost || Object.keys(cost).some((k) => world.resources[k] < cost[k]) || saveBlocked;
     }
@@ -138,28 +233,53 @@
   function openTown() {
     closeMemo();
     townPanel.hidden = false;
-    townPanel.style.top =
-      document.querySelector('header').getBoundingClientRect().bottom + 12 + 'px';
+    closeSettings();
+    if (world.learning.town === 'guiding') {
+      world.learning.town = 'done';
+      highlightTown = true;
+      queueSave();
+    }
+    updateHud();
     updateTown();
     requestDraw();
   }
   document.querySelector('#town-close').addEventListener('click', () => {
     townPanel.hidden = true;
+    highlightTown = false;
     requestDraw();
   });
   for (const id of Object.keys(facilityNames))
     document.querySelector('#upgrade-' + id).addEventListener('click', () => {
       if (saveBlocked || suspended) return;
+      const before = facilityEffect(id, world.facilities[id]),
+        powerBefore = TapWorld.developmentPower(world),
+        levelBefore = world.facilities[id];
       const result = TapWorld.upgrade(world, id);
       if (result === 'upgraded') {
-        if (save()) toast(facilityNames[id] + 'がLv' + world.facilities[id] + 'になりました。');
-      } else toast(result === 'limit' ? '最大レベルです。' : '資源が足りません。');
+        const first = !world.learning.facilityNotified;
+        world.learning.facilityNotified = true;
+        world.learning.town = 'done';
+        highlightTown = false;
+        let message = facilityNames[id] + (levelBefore === 0 ? 'を建設した。' : 'を強化した。');
+        if (id === 'workshop')
+          message += '開拓力 ' + powerBefore + ' → ' + TapWorld.developmentPower(world) + '。';
+        else if (first)
+          message +=
+            before +
+            ' → ' +
+            facilityEffect(id, world.facilities[id]) +
+            (id === 'inn' ? '。探索ポイントが全回復。' : '。');
+        if (save()) toast(message);
+      }
       updateHud();
       requestDraw();
     });
   const backupDialog = document.querySelector('#backup-dialog'),
     backupText = document.querySelector('#backup-json');
-  document.querySelector('#backup').addEventListener('click', () => backupDialog.showModal());
+  document.querySelector('#backup').addEventListener('click', () => {
+    closeSettings();
+    backupDialog.showModal();
+  });
   document.querySelector('#backup-close').addEventListener('click', () => backupDialog.close());
   document.querySelector('#export-save').addEventListener('click', () => {
     if (!save()) return;
@@ -205,7 +325,12 @@
   const SAVE_LOAD_ERROR =
     'セーブを読み込めません。元データを保持しています。この回の進行は保存されません。';
   function toast(message) {
-    notice.textContent = message;
+    const now = performance.now();
+    notice.textContent =
+      now - toastAt < CONFIG.noticeMergeMs && notice.textContent
+        ? notice.textContent + '\n' + message
+        : message;
+    toastAt = now;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (notice.textContent = ''), CONFIG.noticeMs);
   }
@@ -259,6 +384,8 @@
     saveTimer = setTimeout(save, 500);
   }
   function updateHud() {
+    learn();
+    document.querySelector('#power').textContent = '開拓力 ' + TapWorld.developmentPower(world);
     document.querySelector('#points').textContent =
       '探索 ' + Math.floor(world.points) + ' / ' + TapWorld.maximumPoints(world);
     document.querySelector('#resources').textContent =
@@ -1511,6 +1638,7 @@
   }
   function drawDestination(now) {
     const destinations = TapWorld.destinations(world, tilesByCoordinate);
+    if (world.learning.town === 'guiding') destinations.push({ x: 0, y: 0, city: true });
     if (!destinations.length) return;
     const margin = CONFIG.markerMargin,
       spacing = CONFIG.markerSpacing;
@@ -1518,11 +1646,13 @@
     const footerTop = document.querySelector('footer').getBoundingClientRect().top;
     const top = Math.min(headerBottom + margin, height / 2),
       bottom = Math.max(top, Math.min(height, footerTop) - margin);
-    const panel = !townPanel.hidden
-        ? townPanel.getBoundingClientRect()
-        : memoPanel.hidden
-          ? null
-          : memoPanel.getBoundingClientRect(),
+    const panel = !settingsPanel.hidden
+        ? settingsPanel.getBoundingClientRect()
+        : !townPanel.hidden
+          ? townPanel.getBoundingClientRect()
+          : memoPanel.hidden
+            ? null
+            : memoPanel.getBoundingClientRect(),
       placed = [];
     const available = (x, y) =>
       !(
@@ -1572,8 +1702,9 @@
       placed.push({ x, y });
       const offscreen = x !== target.x || y !== target.y,
         ui = TapSkin.current.ui;
-      const label =
-        tilesByCoordinate.get(destination.x + ',' + destination.y)?.landmark === 'tower'
+      const label = destination.city
+        ? '街'
+        : tilesByCoordinate.get(destination.x + ',' + destination.y)?.landmark === 'tower'
           ? '塔'
           : 'アーチ';
       ctx.save();
@@ -1592,9 +1723,9 @@
       ctx.font = '20px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.strokeText('★', x, y);
-      ctx.fillText('★', x, y);
-      if (destinations.length > 1) {
+      ctx.strokeText(destination.city ? '街' : '★', x, y);
+      ctx.fillText(destination.city ? '街' : '★', x, y);
+      if (destinations.length > 1 && !destination.city) {
         ctx.font = '10px sans-serif';
         ctx.strokeText(label, x, y + 16);
         ctx.fillText(label, x, y + 16);
@@ -1628,9 +1759,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!oldWidth)
       camera.zoom = clamp(Math.min(width / 880, height / 650), CONFIG.initialMinZoom, 1.15);
-    if (!townPanel.hidden)
-      townPanel.style.top =
-        document.querySelector('header').getBoundingClientRect().bottom + 12 + 'px';
+
     requestDraw();
   }
   function point(event) {
@@ -1790,12 +1919,20 @@
       if (completion?.monumentReached)
         toast('大きな石のアーチを見つけました。周りの土地が広がり、全体が姿を現します。');
       if (result === 'spring') toast('清水の泉を見つけました。探索ポイントが回復しました。');
-      if (result === 'ruins') toast('遺跡を見つけました。開拓力が1増えました。');
+      if (result === 'ruins')
+        toast(
+          '遺跡を見つけました。開拓力 ' +
+            (TapWorld.developmentPower(world) - 1) +
+            ' → ' +
+            TapWorld.developmentPower(world) +
+            '。',
+        );
       if (result === 'touch' && held.tile.x === 0 && held.tile.y === 0) openTown();
       if (result === 'empty' && now - emptyNoticeAt >= CONFIG.emptyNoticeCooldownMs) {
         emptyNoticeAt = now;
         toast('探索ポイントが足りないため開拓できません。しばらく待つと回復します。');
       }
+      learn();
       if (
         result === 'opened' ||
         result === 'tower' ||

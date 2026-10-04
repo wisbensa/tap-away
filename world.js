@@ -10,7 +10,7 @@
     'symmetric_tree',
   ];
   const RULES = {
-    saveVersion: 8,
+    saveVersion: 9,
     extent: 30,
     maxPoints: 1200,
     recoveryMs: 21600000,
@@ -323,6 +323,7 @@
       facilities: { inn: 0, well: 0, workshop: 0 },
       destination: null,
       introduced: false,
+      learning: { resources: [], town: 'waiting', facilityNotified: false },
       tiles,
       monuments: [],
       scenery: [],
@@ -627,6 +628,17 @@
       typeof w.introduced !== 'boolean' ||
       !Array.isArray(w.tiles) ||
       w.tiles.length !== 3721
+    )
+      fail();
+    const learning = w.learning;
+    if (
+      !learning ||
+      Array.isArray(learning) ||
+      !Array.isArray(learning.resources) ||
+      new Set(learning.resources).size !== learning.resources.length ||
+      learning.resources.some((kind) => !['tree', 'rock', 'mine'].includes(kind)) ||
+      !['waiting', 'guiding', 'done'].includes(learning.town) ||
+      typeof learning.facilityNotified !== 'boolean'
     )
       fail();
     const expectedBounds = bounds();

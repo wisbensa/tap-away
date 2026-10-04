@@ -5,23 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#263d2e" />
     <title>Tap Away</title>
-    <link rel="stylesheet" href="style.css?v=0.7.1" />
+    <link rel="stylesheet" href="style.css?v=0.8.0" />
   </head>
   <body>
     <main>
       <header>
-        <div>
-          <h1>TAP AWAY</h1>
-          <span class="development-status">開発中 · PHASE 2 · v0.7.1</span>
+        <div class="hud">
+          <span id="points"></span><span id="power"></span
+          ><span id="resources" aria-label="資源"></span>
         </div>
-        <div class="controls">
-          <span id="points"></span><button id="notes" type="button">更新情報</button
-          ><button id="dev-reset" type="button">DEV RESET</button
-          ><button id="sound" type="button" aria-pressed="false">Sound OFF</button
-          ><button id="dev-skin" type="button">DEV SKIN</button>
-          <span id="resources" aria-label="資源"></span>
-        </div>
+        <button
+          id="settings"
+          type="button"
+          aria-label="設定"
+          aria-expanded="false"
+          aria-controls="settings-panel"
+        >
+          ⚙
+        </button>
       </header>
+      <aside id="settings-panel" hidden aria-label="設定">
+        <div class="town-heading">
+          <h2>設定</h2>
+          <button id="settings-close" type="button">閉じる</button>
+        </div>
+        <p>バージョン <span id="app-version">0.8.0</span></p>
+        <button id="sound" type="button" aria-pressed="false">Sound OFF</button>
+        <button id="notes" type="button">更新情報</button>
+        <button id="backup" type="button">バックアップ</button>
+        <section id="development-tools">
+          <p class="development-status">開発中 · PHASE 2</p>
+          <button id="dev-reset" type="button">DEV RESET</button
+          ><button id="dev-skin" type="button">DEV SKIN</button>
+        </section>
+      </aside>
       <canvas
         id="map"
         aria-label="土地をタップして開拓する立体地図。スワイプで移動、ピンチで拡大縮小。"
@@ -30,7 +47,6 @@
         <span id="notice" role="status"></span>
         <div class="footer-actions">
           <button id="memo-review" type="button" hidden>メモを見る</button>
-          <button id="backup" type="button">バックアップ</button>
         </div>
       </footer>
       <aside id="memo-panel" hidden aria-label="拾ったメモ">
@@ -48,24 +64,28 @@
       </aside>
       <aside id="town-panel" hidden aria-label="街の施設">
         <div class="town-heading">
-          <h2>街の施設</h2>
+          <h2 id="town-state">街の施設</h2>
           <button id="town-close" type="button">閉じる</button>
         </div>
+        <p id="town-resources"></p>
         <p id="production"></p>
         <section class="facility">
           <h3 id="inn-level"></h3>
+          <p>探索できる量が増える。操作直後に全回復。</p>
           <p id="inn-effect"></p>
           <p id="inn-cost"></p>
           <button id="upgrade-inn" type="button">建設する</button>
         </section>
         <section class="facility">
           <h3 id="well-level"></h3>
+          <p>探索ポイントが早く戻る。</p>
           <p id="well-effect"></p>
           <p id="well-cost"></p>
           <button id="upgrade-well" type="button">建設する</button>
         </section>
         <section class="facility">
           <h3 id="workshop-level"></h3>
+          <p>1回のタップで、より深く開拓できる。</p>
           <p id="workshop-effect"></p>
           <p id="workshop-cost"></p>
           <button id="upgrade-workshop" type="button">建設する</button>
@@ -85,12 +105,12 @@
         <button id="backup-close" type="button">閉じる</button>
         <h2>バックアップ</h2>
         <p>現在の世界をJSONで保存できます。読み込むと、現在の世界を置き換えます。</p>
-        <button id="export-save" type="button">JSONを保存</button>
+        <button id="export-save" type="button">バックアップを保存</button>
         <label for="import-file">JSONファイルを選ぶ</label>
         <input id="import-file" type="file" accept=".json,application/json" />
         <label for="backup-json">JSONを貼り付ける</label>
         <textarea id="backup-json" rows="5" spellcheck="false"></textarea>
-        <button id="import-save" type="button">このJSONで再開</button>
+        <button id="import-save" type="button">バックアップから復元</button>
         <p id="backup-status" role="status"></p>
       </dialog>
       <dialog id="skin-dialog">
@@ -103,9 +123,9 @@
       </dialog>
       <noscript>このゲームにはJavaScriptが必要です。</noscript>
     </main>
-    <script src="world.js?v=0.7.1"></script>
-    <script src="skin-loader.js?v=0.7.1"></script>
-    <script src="scenery-renderer.js?v=0.7.1"></script>
-    <script src="app.js?v=0.7.1"></script>
+    <script src="world.js?v=0.8.0"></script>
+    <script src="skin-loader.js?v=0.8.0"></script>
+    <script src="scenery-renderer.js?v=0.8.0"></script>
+    <script src="app.js?v=0.8.0"></script>
   </body>
 </html>
