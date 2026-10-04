@@ -118,6 +118,15 @@
       "shadeColor": "#647e99",
       "detailColor": "#3a506b",
       "accentColor": "#e1dfb1"
+    },
+    "spring": {
+      "bodyColor": "#dedfc2",
+      "waterColor": "#427b8c",
+      "detailColor": "#c4e4df"
+    },
+    "ruins": {
+      "bodyColor": "#dedfc2",
+      "detailColor": "#536780"
     }
   },
   "lines": {

@@ -10,9 +10,21 @@
     'symmetric_tree',
   ];
   const RULES = {
+    saveVersion: 8,
     extent: 30,
     maxPoints: 1200,
     recoveryMs: 21600000,
+    offlineProductionMs: 43200000,
+    // Phase 2 trial balance: edit here after device playtests.
+    productionPerHour: { tree: 6, rock: 4, mine: 2 },
+    springPoints: 240,
+    facilityMetalStartLevel: 3,
+    facilityMetalPerLevel: 1,
+    facilities: {
+      inn: { maxLevel: 5, baseCost: { wood: 24, rock: 8, metal: 0 }, growth: 2 },
+      well: { maxLevel: 5, baseCost: { wood: 16, rock: 16, metal: 0 }, growth: 2 },
+      workshop: { maxLevel: 10, baseCost: { wood: 32, rock: 12, metal: 0 }, growth: 1.7 },
+    },
     towerRadius: 5,
     enclosureLimit: 16,
     costs: { grass: 4, tree: 7, rock: 10, mine: 15 },
@@ -34,13 +46,6 @@
       { distance: Infinity, grass: 0.51, tree: 0.335, rock: 0.11 },
     ],
   };
-  const LEGACY_TOWERS = [
-    { x: 0, y: -7 },
-    { x: 7, y: -12 },
-    { x: 15, y: -8 },
-    { x: 19, y: 1 },
-    { x: 12, y: 10 },
-  ];
   const SALT = {
     terrain: 0x183947a1,
     appearance: 0x754392a7,
@@ -305,9 +310,9 @@
     for (let y = -RULES.extent; y <= RULES.extent; y++)
       for (let x = -RULES.extent; x <= RULES.extent; x++) tiles.push(generateTile(seed, x, y));
     const w = {
-      saveVersion: 7,
+      saveVersion: RULES.saveVersion,
       worldVersion: 1,
-      phase: 1,
+      phase: 2,
       savedAt: now,
       lastCalculatedAt: now,
       bounds: bounds(),
@@ -331,11 +336,72 @@
     chooseDestination(w);
     return validate(w);
   }
-  function settle(w, now = Date.now()) {
-    if (!finite(now)) return;
+  function maximumPoints(w, level = w.facilities.inn) {
+    return Math.round(RULES.maxPoints * (1 + 0.2 * level));
+  }
+  function recoveryMultiplier(w, level = w.facilities.well) {
+    return 1 + 0.1 * level;
+  }
+  function recoveryRate(w) {
+    return (RULES.maxPoints / RULES.recoveryMs) * recoveryMultiplier(w);
+  }
+  function developmentPower(w, level = w.facilities.workshop) {
+    return 1 + level + (w.tiles.some((t) => t.landmark === 'ruins' && t.effectApplied) ? 1 : 0);
+  }
+  function productionRates(w) {
+    const rates = { wood: 0, rock: 0, metal: 0 };
+    const resource = { tree: 'wood', rock: 'rock', mine: 'metal' };
+    for (const t of w.tiles)
+      if (t.visibility === 'opened' && resource[t.kind])
+        rates[resource[t.kind]] += RULES.productionPerHour[t.kind];
+    return rates;
+  }
+  function settle(w, now = Date.now(), offline = false) {
+    const gained = { points: 0, wood: 0, rock: 0, metal: 0 };
+    if (!finite(now)) return gained;
     const elapsed = Math.max(0, now - w.lastCalculatedAt);
-    w.points = Math.min(RULES.maxPoints, w.points + (elapsed * RULES.maxPoints) / RULES.recoveryMs);
+    const points = Math.min(maximumPoints(w), w.points + elapsed * recoveryRate(w));
+    gained.points = points - w.points;
+    w.points = points;
+    const hours = (offline ? Math.min(elapsed, RULES.offlineProductionMs) : elapsed) / 3600000;
+    if (hours > 0) {
+      const rates = productionRates(w);
+      for (const k of ['wood', 'rock', 'metal']) {
+        const next = w.resources[k] + rates[k] * hours;
+        if (!finite(next)) throw Error('Resource calculation overflow');
+        gained[k] = next - w.resources[k];
+        w.resources[k] = next;
+      }
+    }
     w.lastCalculatedAt = Math.max(now, w.lastCalculatedAt);
+    return gained;
+  }
+  function facilityCost(w, id) {
+    if (!Object.hasOwn(RULES.facilities, id)) return null;
+    const rule = RULES.facilities[id],
+      level = w.facilities[id];
+    if (level >= rule.maxLevel) return null;
+    const factor = rule.growth ** level;
+    return {
+      wood: Math.ceil(rule.baseCost.wood * factor),
+      rock: Math.ceil(rule.baseCost.rock * factor),
+      // Metal enters at Lv3; early construction is possible before finding a mine.
+      metal: Math.ceil(
+        (rule.baseCost.metal +
+          Math.max(0, level + 2 - RULES.facilityMetalStartLevel) * RULES.facilityMetalPerLevel) *
+          factor,
+      ),
+    };
+  }
+  function upgrade(w, id, now = Date.now()) {
+    const cost = facilityCost(w, id);
+    if (!cost) return 'limit';
+    settle(w, now);
+    if (Object.keys(cost).some((k) => w.resources[k] < cost[k])) return 'insufficient';
+    for (const k of Object.keys(cost)) w.resources[k] -= cost[k];
+    w.facilities[id]++;
+    if (id === 'inn') w.points = maximumPoints(w);
+    return 'upgraded';
   }
   function applyTowerEffect(w, tower) {
     for (const tile of w.tiles)
@@ -353,7 +419,11 @@
     if (t.landmark === 'tower' && !t.effectApplied) {
       applyTowerEffect(w, t);
     }
-    // Opened terrain is the production source; production starts in Phase 2.
+    if ((t.landmark === 'spring' || t.landmark === 'ruins') && !t.effectApplied) {
+      t.effectApplied = true;
+      if (t.landmark === 'spring')
+        w.points = Math.min(maximumPoints(w), w.points + RULES.springPoints);
+    }
   }
   function completeMonument(w, monument, m) {
     const entries = monument.occupied
@@ -411,7 +481,7 @@
       w.tiles.some((tile) => tile.towerOrder === 0 && tile.effectApplied) &&
       w.tiles.filter((tile) => tile.visibility === 'opened').length >= RULES.memoOpenedThreshold;
     w.points--;
-    t.developmentProgress = Math.min(t.requiredCost, t.developmentProgress + 1);
+    t.developmentProgress = Math.min(t.requiredCost, t.developmentProgress + developmentPower(w));
     if (t.developmentProgress < t.requiredCost) return 'progress';
     const previousMonuments = w.monuments.map((monument) => ({
       monument,
@@ -452,7 +522,7 @@
         monumentReached,
         monumentRevealed,
       });
-    return t.landmark === 'tower' ? 'tower' : 'opened';
+    return t.landmark || 'opened';
   }
   function monumentStatus(w, monument, m = index(w)) {
     const opened = monument.occupied.filter(
@@ -534,22 +604,26 @@
       }
     return protectedKeys;
   }
-  function validateWorld(w, saveVersion) {
+  function validateWorld(w) {
     const fail = () => {
       throw Error('Invalid save data');
     };
     if (
       !w ||
-      w.saveVersion !== saveVersion ||
+      w.saveVersion !== RULES.saveVersion ||
       w.worldVersion !== 1 ||
-      w.phase !== 1 ||
-      ![2, 3, 4].includes(w.generatorVersion) ||
+      w.phase !== 2 ||
+      w.generatorVersion !== 4 ||
       !isSeed(w.seed) ||
       !finite(w.savedAt) ||
       !finite(w.lastCalculatedAt) ||
       !finite(w.points) ||
       w.points < 0 ||
-      w.points > (saveVersion < 7 ? 700 : RULES.maxPoints) ||
+      !w.facilities ||
+      Array.isArray(w.facilities) ||
+      !w.resources ||
+      Array.isArray(w.resources) ||
+      w.points > maximumPoints(w) ||
       typeof w.introduced !== 'boolean' ||
       !Array.isArray(w.tiles) ||
       w.tiles.length !== 3721
@@ -592,7 +666,8 @@
         (t.visibility === 'opened' && t.developmentProgress !== t.requiredCost) ||
         (t.visibility === 'hidden' && t.developmentProgress !== 0) ||
         (t.visibility === 'preview' && t.developmentProgress === t.requiredCost) ||
-        (t.effectApplied && (t.landmark !== 'tower' || t.visibility !== 'opened'))
+        (t.effectApplied && (!t.landmark || t.visibility !== 'opened')) ||
+        (t.landmark && t.visibility === 'opened' && !t.effectApplied)
       )
         fail();
       seen.add(key(t.x, t.y));
@@ -673,8 +748,7 @@
       counts.set(object.type, counts.get(object.type) + 1);
     }
     if ([...counts.values()].some((n) => n !== RULES.sceneryPerType)) fail();
-    let target = null;
-    if (saveVersion >= 4) {
+    {
       if (
         !w.memo ||
         Array.isArray(w.memo) ||
@@ -691,19 +765,8 @@
         !towers.some((t) => t.towerOrder === 0 && t.effectApplied)
       )
         fail();
-      if (saveVersion === 4 && w.memo.status === 'collected') {
-        const monument = w.monuments.find((object) => object.id === w.memo.monumentId);
-        if (!monumentStatus(w, monument, m).reached) target = monument;
-      }
     }
-    if (target) {
-      if (
-        !coordinate(w.destination) ||
-        w.destination.x !== target.x ||
-        w.destination.y !== target.y
-      )
-        fail();
-    } else {
+    {
       if (
         w.destination !== null &&
         (!coordinate(w.destination) ||
@@ -715,7 +778,13 @@
     }
     for (const k of ['wood', 'rock', 'metal'])
       if (!finite(w.resources?.[k]) || w.resources[k] < 0) fail();
-    for (const k of ['inn', 'well', 'workshop']) if (w.facilities?.[k] !== 0) fail();
+    for (const k of ['inn', 'well', 'workshop'])
+      if (
+        !Number.isInteger(w.facilities[k]) ||
+        w.facilities[k] < 0 ||
+        w.facilities[k] > RULES.facilities[k].maxLevel
+      )
+        fail();
     // Saved terrain/costs are authoritative; validation never invokes the generator.
     return w;
   }
@@ -745,8 +814,8 @@
   function memoAside(w) {
     return Object.hasOwn(memoAsides, w.memo.asideId) ? memoAsides[w.memo.asideId] : '';
   }
-  function validate(w, version = 7) {
-    validateWorld(w, version);
+  function validate(w) {
+    validateWorld(w);
     if (
       w.memo.status === 'waiting'
         ? w.memo.asideId !== null
@@ -754,148 +823,6 @@
     )
       throw Error('Invalid memo aside');
     return w;
-  }
-  function validateLegacy(w) {
-    const fail = () => {
-      throw Error('Invalid legacy save data');
-    };
-    if (
-      !w ||
-      ![1, 2].includes(w.saveVersion) ||
-      w.worldVersion !== 1 ||
-      w.phase !== 1 ||
-      !finite(w.savedAt) ||
-      !finite(w.lastCalculatedAt) ||
-      !finite(w.points) ||
-      w.points < 0 ||
-      w.points > 1000 ||
-      typeof w.introduced !== 'boolean' ||
-      !Array.isArray(w.tiles) ||
-      w.tiles.length !== 3721
-    )
-      fail();
-    const seen = new Set();
-    for (const t of w.tiles) {
-      if (
-        !t ||
-        !Number.isInteger(t.x) ||
-        !Number.isInteger(t.y) ||
-        Math.abs(t.x) > 30 ||
-        Math.abs(t.y) > 30 ||
-        seen.has(key(t.x, t.y)) ||
-        !Object.hasOwn(RULES.costs, t.kind) ||
-        !['hidden', 'preview', 'opened'].includes(t.visibility) ||
-        !Number.isInteger(t.requiredCost) ||
-        t.requiredCost < 1 ||
-        !finite(t.developmentProgress) ||
-        t.developmentProgress < 0 ||
-        t.developmentProgress > t.requiredCost ||
-        typeof t.road !== 'boolean' ||
-        typeof t.effectApplied !== 'boolean' ||
-        !finite(t.seed) ||
-        ![null, 'tower', 'spring', 'ruins'].includes(t.landmark) ||
-        (t.visibility === 'opened' && t.developmentProgress !== t.requiredCost) ||
-        (t.effectApplied && (t.landmark !== 'tower' || t.visibility !== 'opened'))
-      )
-        fail();
-      seen.add(key(t.x, t.y));
-    }
-    const m = index(w),
-      expectedBounds = bounds();
-    if (
-      m.get('0,0').visibility !== 'opened' ||
-      !w.bounds ||
-      Object.keys(expectedBounds).some((k) => w.bounds[k] !== expectedBounds[k]) ||
-      !finite(w.seed) ||
-      w.generatorVersion !== 1
-    )
-      fail();
-    for (const [name, x, y] of [
-      ['spring', 6, -5],
-      ['ruins', 10, -7],
-    ])
-      if (
-        w.tiles.filter((t) => t.landmark === name).length !== 1 ||
-        m.get(key(x, y)).landmark !== name
-      )
-        fail();
-    const towers = w.tiles.filter((t) => t.landmark === 'tower');
-    if (w.saveVersion === 1) {
-      if (towers.length !== 1 || m.get('0,-3').landmark !== 'tower') fail();
-    } else if (
-      towers.length !== 5 ||
-      !LEGACY_TOWERS.slice(1).every((p) => m.get(key(p.x, p.y)).landmark === 'tower') ||
-      !['0,-7', '0,-3'].some((k) => m.get(k).landmark === 'tower')
-    )
-      fail();
-    if (
-      w.destination !== null &&
-      (!w.destination ||
-        !Number.isInteger(w.destination.x) ||
-        !Number.isInteger(w.destination.y) ||
-        m.get(key(w.destination.x, w.destination.y))?.landmark !== 'tower' ||
-        m.get(key(w.destination.x, w.destination.y)).effectApplied)
-    )
-      fail();
-    if (w.destination === null && towers.some((t) => !t.effectApplied)) fail();
-    for (const k of ['wood', 'rock', 'metal'])
-      if (!finite(w.resources?.[k]) || w.resources[k] < 0) fail();
-    for (const k of ['inn', 'well', 'workshop']) if (w.facilities?.[k] !== 0) fail();
-    return w;
-  }
-  function migrate(w, now = Date.now(), seed) {
-    if (w?.saveVersion === 7) return validate(w);
-    if (w?.saveVersion === 6) {
-      validate(w, 6);
-      if (!finite(now)) throw Error('Invalid migration time');
-      const migrated = JSON.parse(JSON.stringify(w));
-      migrated.points = Math.min(
-        700,
-        migrated.points + (Math.max(0, now - migrated.lastCalculatedAt) * 700) / RULES.recoveryMs,
-      );
-      migrated.lastCalculatedAt = Math.max(now, migrated.lastCalculatedAt);
-      migrated.saveVersion = 7;
-      const m = index(migrated);
-      for (const monument of migrated.monuments)
-        if (monumentStatus(migrated, monument, m).reached) completeMonument(migrated, monument, m);
-      return validate(migrated);
-    }
-    if (w?.saveVersion === 5) {
-      validateWorld(w, 5);
-      const migrated = JSON.parse(JSON.stringify(w));
-      migrated.saveVersion = 6;
-      // Fill only absent legacy IDs; loading never places or collects a note.
-      if (!Object.hasOwn(migrated.memo, 'asideId'))
-        migrated.memo.asideId =
-          migrated.memo.status === 'waiting' ? null : chooseMemoAside(migrated);
-      return migrate(migrated, now, seed);
-    }
-    if (w?.saveVersion === 4) {
-      validateWorld(w, 4);
-      const migrated = JSON.parse(JSON.stringify(w));
-      migrated.saveVersion = 5;
-      // Version 4 replaced the tower marker with the memo target. Restore only
-      // that hidden tower guide; all land, progress and event data remain saved.
-      if (
-        migrated.destination &&
-        index(migrated).get(key(migrated.destination.x, migrated.destination.y)).landmark !==
-          'tower'
-      )
-        chooseDestination(migrated);
-      return migrate(migrated, now, seed);
-    }
-    if (w?.saveVersion === 3) {
-      validateWorld(w, 3);
-      // Only the new event state is added; all saved land and reservations stay authoritative.
-      const migrated = JSON.parse(JSON.stringify(w));
-      migrated.saveVersion = 5;
-      migrated.memo = { status: 'waiting', clue: null, monumentId: migrated.monuments[0].id };
-      return migrate(migrated, now, seed);
-    }
-    validateLegacy(w);
-    // The specification authorizes this one fixed-map transition to start a new world.
-    // Invalid/unknown saves never reach create(), and the input is never modified.
-    return create(now, seed);
   }
   globalThis.TapWorld = {
     RULES,
@@ -909,7 +836,13 @@
     monumentStatus,
     destinations,
     validate,
-    migrate,
+    maximumPoints,
+    recoveryMultiplier,
+    recoveryRate,
+    developmentPower,
+    productionRates,
+    facilityCost,
+    upgrade,
     protectedMonumentCoordinates,
     memoAsides,
     memoAside,

@@ -12,6 +12,8 @@
     ...terrainIds,
     'city',
     'tower',
+    'spring',
+    'ruins',
     'stone_arch',
     'front_statue',
     'leaf_statue',
@@ -187,6 +189,8 @@
           { x: -10, y: -62 },
         ],
       },
+      spring: { bodyColor: '#d3c498', waterColor: '#649caa', detailColor: '#c4e4df' },
+      ruins: { bodyColor: '#d3c498', detailColor: '#3d513b' },
       stone_arch: {
         baseColor: '#a3a592',
         faceColor: '#d3ccaf',

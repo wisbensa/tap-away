@@ -5,20 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#263d2e" />
     <title>Tap Away</title>
-    <link rel="stylesheet" href="style.css?v=0.6.4" />
+    <link rel="stylesheet" href="style.css?v=0.7.0" />
   </head>
   <body>
     <main>
       <header>
         <div>
           <h1>TAP AWAY</h1>
-          <span class="development-status">開発中 · PHASE 1D · v0.6.4</span>
+          <span class="development-status">開発中 · PHASE 2 · v0.7.0</span>
         </div>
         <div class="controls">
           <span id="points"></span><button id="notes" type="button">更新情報</button
           ><button id="dev-reset" type="button">DEV RESET</button
           ><button id="sound" type="button" aria-pressed="false">Sound OFF</button
           ><button id="dev-skin" type="button">DEV SKIN</button>
+          <span id="resources" aria-label="資源"></span>
         </div>
       </header>
       <canvas
@@ -26,8 +27,11 @@
         aria-label="土地をタップして開拓する立体地図。スワイプで移動、ピンチで拡大縮小。"
       ></canvas>
       <footer>
-        <span id="notice" role="status"></span
-        ><button id="memo-review" type="button" hidden>メモを見る</button>
+        <span id="notice" role="status"></span>
+        <div class="footer-actions">
+          <button id="memo-review" type="button" hidden>メモを見る</button>
+          <button id="backup" type="button">バックアップ</button>
+        </div>
       </footer>
       <aside id="memo-panel" hidden aria-label="拾ったメモ">
         <button id="memo-close" type="button" aria-label="メモを閉じる">閉じる</button>
@@ -42,6 +46,31 @@
         <p id="memo-aside"></p>
         <p id="memo-context" role="status"></p>
       </aside>
+      <aside id="town-panel" hidden aria-label="街の施設">
+        <div class="town-heading">
+          <h2>街の施設</h2>
+          <button id="town-close" type="button">閉じる</button>
+        </div>
+        <p id="production"></p>
+        <section class="facility">
+          <h3 id="inn-level"></h3>
+          <p id="inn-effect"></p>
+          <p id="inn-cost"></p>
+          <button id="upgrade-inn" type="button">建設する</button>
+        </section>
+        <section class="facility">
+          <h3 id="well-level"></h3>
+          <p id="well-effect"></p>
+          <p id="well-cost"></p>
+          <button id="upgrade-well" type="button">建設する</button>
+        </section>
+        <section class="facility">
+          <h3 id="workshop-level"></h3>
+          <p id="workshop-effect"></p>
+          <p id="workshop-cost"></p>
+          <button id="upgrade-workshop" type="button">建設する</button>
+        </section>
+      </aside>
       <section id="start-screen">
         <h2>TAP AWAY</h2>
         <p>考え事や音楽のお供に、<br />気の向くままにポチポチ。</p>
@@ -51,6 +80,18 @@
         <button id="close-notes" type="button">閉じる</button>
         <h2>更新情報</h2>
         <div id="release-body"></div>
+      </dialog>
+      <dialog id="backup-dialog">
+        <button id="backup-close" type="button">閉じる</button>
+        <h2>バックアップ</h2>
+        <p>現在の世界をJSONで保存できます。読み込むと、現在の世界を置き換えます。</p>
+        <button id="export-save" type="button">JSONを保存</button>
+        <label for="import-file">JSONファイルを選ぶ</label>
+        <input id="import-file" type="file" accept=".json,application/json" />
+        <label for="backup-json">JSONを貼り付ける</label>
+        <textarea id="backup-json" rows="5" spellcheck="false"></textarea>
+        <button id="import-save" type="button">このJSONで再開</button>
+        <p id="backup-status" role="status"></p>
       </dialog>
       <dialog id="skin-dialog">
         <button id="close-skin" type="button">閉じる</button>
@@ -62,9 +103,9 @@
       </dialog>
       <noscript>このゲームにはJavaScriptが必要です。</noscript>
     </main>
-    <script src="world.js?v=0.6.4"></script>
-    <script src="skin-loader.js?v=0.6.4"></script>
-    <script src="scenery-renderer.js?v=0.6.4"></script>
-    <script src="app.js?v=0.6.4"></script>
+    <script src="world.js?v=0.7.0"></script>
+    <script src="skin-loader.js?v=0.7.0"></script>
+    <script src="scenery-renderer.js?v=0.7.0"></script>
+    <script src="app.js?v=0.7.0"></script>
   </body>
 </html>

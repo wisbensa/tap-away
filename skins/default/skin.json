@@ -2594,6 +2594,15 @@
           "y": -62
         }
       ]
+    },
+    "spring": {
+      "bodyColor": "#d3c498",
+      "waterColor": "#649caa",
+      "detailColor": "#c4e4df"
+    },
+    "ruins": {
+      "bodyColor": "#d3c498",
+      "detailColor": "#3d513b"
     }
   },
   "lines": {

@@ -71,6 +71,8 @@
     markerMargin: 36,
     markerRadius: 28,
     markerSpacing: 60,
+    cityVillageFacilityLevels: 1,
+    cityTownFacilityLevels: 6,
   };
   const canvas = document.querySelector('#map'),
     ctx = canvas.getContext('2d');
@@ -102,9 +104,104 @@
     started = false,
     needsInitialSave = false,
     legacyReset = false,
+    suspended = false,
+    resumeGains = null,
     emptyNoticeAt = -Infinity;
   const memoPanel = document.querySelector('#memo-panel'),
     memoReview = document.querySelector('#memo-review');
+  const townPanel = document.querySelector('#town-panel');
+  const facilityNames = { inn: '宿屋', well: '井戸', workshop: '工房' };
+  function facilityEffect(id, level) {
+    if (id === 'inn') return '探索上限 ' + TapWorld.maximumPoints(world, level);
+    if (id === 'well') return '回復速度 ×' + TapWorld.recoveryMultiplier(world, level).toFixed(1);
+    return '開拓力 ' + TapWorld.developmentPower(world, level);
+  }
+  function updateTown() {
+    const rates = TapWorld.productionRates(world);
+    document.querySelector('#production').textContent =
+      '生産／時間：木 ' + rates.wood + '　岩 ' + rates.rock + '　金属 ' + rates.metal;
+    for (const id of Object.keys(facilityNames)) {
+      const level = world.facilities[id],
+        cost = TapWorld.facilityCost(world, id);
+      document.querySelector('#' + id + '-level').textContent = facilityNames[id] + ' Lv' + level;
+      document.querySelector('#' + id + '-effect').textContent =
+        facilityEffect(id, level) + (cost ? ' → ' + facilityEffect(id, level + 1) : '（上限）');
+      document.querySelector('#' + id + '-cost').textContent = cost
+        ? '必要：木 ' + cost.wood + '　岩 ' + cost.rock + '　金属 ' + cost.metal
+        : '最大レベルです';
+      const button = document.querySelector('#upgrade-' + id);
+      button.textContent = cost ? (level === 0 ? '建設する' : 'レベルアップ') : '上限';
+      button.disabled =
+        !cost || Object.keys(cost).some((k) => world.resources[k] < cost[k]) || saveBlocked;
+    }
+  }
+  function openTown() {
+    closeMemo();
+    townPanel.hidden = false;
+    townPanel.style.top =
+      document.querySelector('header').getBoundingClientRect().bottom + 12 + 'px';
+    updateTown();
+    requestDraw();
+  }
+  document.querySelector('#town-close').addEventListener('click', () => {
+    townPanel.hidden = true;
+    requestDraw();
+  });
+  for (const id of Object.keys(facilityNames))
+    document.querySelector('#upgrade-' + id).addEventListener('click', () => {
+      if (saveBlocked || suspended) return;
+      const result = TapWorld.upgrade(world, id);
+      if (result === 'upgraded') {
+        if (save()) toast(facilityNames[id] + 'がLv' + world.facilities[id] + 'になりました。');
+      } else toast(result === 'limit' ? '最大レベルです。' : '資源が足りません。');
+      updateHud();
+      requestDraw();
+    });
+  const backupDialog = document.querySelector('#backup-dialog'),
+    backupText = document.querySelector('#backup-json');
+  document.querySelector('#backup').addEventListener('click', () => backupDialog.showModal());
+  document.querySelector('#backup-close').addEventListener('click', () => backupDialog.close());
+  document.querySelector('#export-save').addEventListener('click', () => {
+    if (!save()) return;
+    backupText.value = JSON.stringify(world, null, 2);
+    const url = URL.createObjectURL(new Blob([backupText.value], { type: 'application/json' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tap-away-save.json';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  function importSave(text) {
+    try {
+      const candidate = TapWorld.validate(JSON.parse(text));
+      TapWorld.settle(candidate, Date.now(), true);
+      candidate.savedAt = Date.now();
+      // Commit first, then reload through the normal current-version loader.
+      localStorage.setItem(SAVE_KEY, JSON.stringify(candidate));
+    } catch {
+      document.querySelector('#backup-status').textContent =
+        '読み込めませんでした。現行版のJSONか、端末の保存設定を確認してください。現在のセーブは保持しています。';
+      return false;
+    }
+    clearTimeout(saveTimer);
+    saveBlocked = true; // pagehide must not overwrite the committed import with the old world.
+    location.reload();
+    return true;
+  }
+  document
+    .querySelector('#import-save')
+    .addEventListener('click', () => importSave(backupText.value));
+  document.querySelector('#import-file').addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      backupText.value = await file.text();
+      document.querySelector('#backup-status').textContent =
+        'JSONを読み込みました。「このJSONで再開」で適用します。';
+    } catch {
+      document.querySelector('#backup-status').textContent = 'ファイルを読み込めませんでした。';
+    }
+  });
   const SAVE_LOAD_ERROR =
     'セーブを読み込めません。元データを保持しています。この回の進行は保存されません。';
   function toast(message) {
@@ -121,13 +218,18 @@
           ? Number(seedText)
           : undefined;
       const previous = raw === null ? null : JSON.parse(raw);
+      // Development builds deliberately start over when the save schema changes.
+      legacyReset =
+        previous !== null &&
+        Number.isInteger(previous?.saveVersion) &&
+        previous.saveVersion >= 1 &&
+        previous.saveVersion < TapWorld.RULES.saveVersion;
       const loaded =
-        raw === null
+        raw === null || legacyReset
           ? TapWorld.create(Date.now(), seed)
-          : TapWorld.migrate(previous, Date.now(), seed);
-      legacyReset = raw !== null && previous.saveVersion < 3;
-      needsInitialSave = raw === null || previous.saveVersion < loaded.saveVersion;
-      TapWorld.settle(loaded);
+          : TapWorld.validate(previous);
+      needsInitialSave = raw === null || legacyReset;
+      if (!needsInitialSave) resumeGains = TapWorld.settle(loaded, Date.now(), true);
       return loaded;
     } catch {
       saveBlocked = true;
@@ -140,7 +242,7 @@
   function save() {
     clearTimeout(saveTimer);
     if (saveBlocked) return false;
-    TapWorld.settle(world);
+    if (!suspended) TapWorld.settle(world);
     const savedAt = Date.now();
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({ ...world, savedAt }));
@@ -158,8 +260,31 @@
   }
   function updateHud() {
     document.querySelector('#points').textContent =
-      '探索 ' + Math.floor(world.points) + ' / ' + TapWorld.RULES.maxPoints;
+      '探索 ' + Math.floor(world.points) + ' / ' + TapWorld.maximumPoints(world);
+    document.querySelector('#resources').textContent =
+      '木 ' +
+      Math.floor(world.resources.wood) +
+      '　岩 ' +
+      Math.floor(world.resources.rock) +
+      '　金属 ' +
+      Math.floor(world.resources.metal);
     memoReview.hidden = !started || world.memo.status !== 'collected';
+    if (!townPanel.hidden) updateTown();
+  }
+  function showResume(gained) {
+    if (!gained) return;
+    const labels = { points: '探索', wood: '木', rock: '岩', metal: '金属' };
+    const entries = Object.keys(labels).filter((k) => gained[k] > 0);
+    if (entries.length)
+      toast(
+        'おかえりなさい\n' +
+          entries
+            .map(
+              (k) =>
+                labels[k] + ' +' + (gained[k] >= 1 ? Math.floor(gained[k]) : gained[k].toFixed(2)),
+            )
+            .join('　'),
+      );
   }
   document.querySelector('#start').textContent = world.introduced ? 'つづきから' : 'はじめる';
   function startGame() {
@@ -170,9 +295,14 @@
     if (!world.introduced && !saveBlocked) {
       world.introduced = true;
       toast(
-        (legacyReset ? '地図が新しくなりました。' : '') +
-          '隣の土地をポチポチ開拓。★の古い塔まで行くと、遠くを見渡せます。',
+        (legacyReset ? '開発版の更新により、新しい世界を開始しました。' : '') +
+          '隣の土地をポチポチ開拓。街をタップすると施設を育てられます。',
       );
+      queueSave();
+    }
+    if (world.introduced && resumeGains) {
+      showResume(resumeGains);
+      resumeGains = null;
       queueSave();
     }
     updateHud();
@@ -198,6 +328,7 @@
     requestDraw();
   }
   function showMemo(alreadyReached = false) {
+    townPanel.hidden = true;
     const monument = world.monuments.find((m) => m.id === world.memo.monumentId);
     if (world.memo.status !== 'collected' || !monument) return;
     document.querySelector('#memo-hint').textContent = memoHint(monument);
@@ -303,14 +434,14 @@
     requestDraw();
   });
   setInterval(() => {
-    if (!document.hidden && started) {
+    if (!document.hidden && !suspended && started) {
       TapWorld.settle(world);
       updateHud();
       tickAtmosphere(performance.now());
     }
   }, 1000);
   setInterval(() => {
-    if (!document.hidden && started) queueSave();
+    if (!document.hidden && !suspended && started) queueSave();
   }, 15000);
   tiles.sort((a, b) => a.y - b.y || a.x - b.x);
   const tilesByCoordinate = TapWorld.index(world);
@@ -662,6 +793,15 @@
               ],
             ];
       if (tile.visibility === 'opened') id = 'tower';
+    } else if (tile.landmark === 'spring' || tile.landmark === 'ruins') {
+      if (tile.visibility !== 'hidden')
+        shapes = [
+          [
+            { x: -22, y: 5 },
+            { x: 22, y: -38 },
+          ],
+        ];
+      if (tile.visibility === 'opened') id = tile.landmark;
     } else if (tile.visibility !== 'hidden') {
       shapes = objectShapes(tile);
       id = tile.kind;
@@ -887,6 +1027,65 @@
           : 1;
         if (drawScenery(tile, base, alpha)) continue;
       }
+      if (tile.landmark === 'spring' || tile.landmark === 'ruins') {
+        if (visibility === 'hidden') continue;
+        if (visibility === 'opened' && drawAsset(tile.landmark, base)) continue;
+        ctx.save();
+        ctx.translate(base.x, base.y);
+        ctx.scale(camera.zoom, camera.zoom);
+        if (visibility !== 'opened') {
+          // Anonymous outline: zoom does not reveal the type or its effect.
+          ctx.globalAlpha = 0.25;
+          polygon(
+            [
+              { x: -12, y: 0 },
+              { x: 12, y: 0 },
+              { x: 8, y: -20 },
+              { x: -7, y: -18 },
+            ],
+            skin.objects.tower.bodyColor,
+          );
+        } else if (tile.landmark === 'spring') {
+          ctx.fillStyle = skin.objects.spring.bodyColor;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, 20, 10, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = skin.objects.spring.waterColor;
+          ctx.beginPath();
+          ctx.ellipse(0, -2, 15, 6, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = skin.objects.spring.detailColor;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-6, -3);
+          ctx.lineTo(5, -3);
+          ctx.stroke();
+        } else {
+          for (const x of [-14, 9])
+            polygon(
+              [
+                { x, y: 0 },
+                { x: x + 7, y: 0 },
+                { x: x + 7, y: -28 },
+                { x, y: -32 },
+              ],
+              skin.objects.ruins.bodyColor,
+            );
+          polygon(
+            [
+              { x: -14, y: -28 },
+              { x: 16, y: -28 },
+              { x: 12, y: -36 },
+              { x: -12, y: -35 },
+            ],
+            skin.objects.ruins.bodyColor,
+          );
+          ctx.fillStyle = skin.objects.ruins.detailColor;
+          ctx.fillRect(-5, -4, 9, 4);
+        }
+        ctx.restore();
+        continue;
+      }
       if (
         (tile.x === 0 && tile.y === 0) ||
         (tile.landmark === 'tower' &&
@@ -903,6 +1102,21 @@
         ctx.translate(base.x, base.y);
         ctx.scale(camera.zoom, camera.zoom);
         if (tile.x === 0 && tile.y === 0) {
+          const total = Object.values(world.facilities).reduce((a, b) => a + b, 0);
+          const houses =
+            total >= CONFIG.cityTownFacilityLevels
+              ? 3
+              : total >= CONFIG.cityVillageFacilityLevels
+                ? 1
+                : 0;
+          for (let i = 0; i < houses; i++) {
+            ctx.save();
+            ctx.translate(i === 0 ? -22 : 20 + (i - 1) * 9, i === 2 ? -10 : 4);
+            ctx.scale(0.45, 0.45);
+            polygon(object.body, object.bodyColor);
+            polygon(object.roof, object.roofColor);
+            ctx.restore();
+          }
           polygon(object.body, object.bodyColor);
           polygon(object.roof, object.roofColor);
           ctx.fillStyle = object.doorColor;
@@ -1310,7 +1524,11 @@
     const footerTop = document.querySelector('footer').getBoundingClientRect().top;
     const top = Math.min(headerBottom + margin, height / 2),
       bottom = Math.max(top, Math.min(height, footerTop) - margin);
-    const panel = memoPanel.hidden ? null : memoPanel.getBoundingClientRect(),
+    const panel = !townPanel.hidden
+        ? townPanel.getBoundingClientRect()
+        : memoPanel.hidden
+          ? null
+          : memoPanel.getBoundingClientRect(),
       placed = [];
     const available = (x, y) =>
       !(
@@ -1416,6 +1634,9 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!oldWidth)
       camera.zoom = clamp(Math.min(width / 880, height / 650), CONFIG.initialMinZoom, 1.15);
+    if (!townPanel.hidden)
+      townPanel.style.top =
+        document.querySelector('header').getBoundingClientRect().bottom + 12 + 'px';
     requestDraw();
   }
   function point(event) {
@@ -1440,15 +1661,14 @@
   }
   function canDevelop(tile) {
     const available = Math.min(
-      TapWorld.RULES.maxPoints,
+      TapWorld.maximumPoints(world),
       world.points +
-        (Math.max(0, Date.now() - world.lastCalculatedAt) * TapWorld.RULES.maxPoints) /
-          TapWorld.RULES.recoveryMs,
+        Math.max(0, Date.now() - world.lastCalculatedAt) * TapWorld.recoveryRate(world),
     );
     return TapWorld.eligible(tile, tilesByCoordinate) && available >= 1;
   }
   function press(p) {
-    if (!started || camera.zoom < CONFIG.minTapZoom) return;
+    if (!started || suspended || camera.zoom < CONFIG.minTapZoom) return;
     const hit = pick(p);
     if (!hit || hit.zoom < CONFIG.minTapZoom) return;
     const { tile, base, zoom } = hit;
@@ -1551,7 +1771,7 @@
       const kind =
         result === 'blocked' || result === 'empty'
           ? 'blocked'
-          : result === 'opened' || result === 'tower'
+          : result === 'opened' || result === 'tower' || result === 'spring' || result === 'ruins'
             ? 'complete'
             : result === 'touch' || result === 'memo'
               ? 'opened'
@@ -1575,11 +1795,21 @@
       }
       if (completion?.monumentReached)
         toast('大きな石のアーチを見つけました。周りの土地が広がり、全体が姿を現します。');
+      if (result === 'spring') toast('清水の泉を見つけました。探索ポイントが回復しました。');
+      if (result === 'ruins') toast('遺跡を見つけました。開拓力が1増えました。');
+      if (result === 'touch' && held.tile.x === 0 && held.tile.y === 0) openTown();
       if (result === 'empty' && now - emptyNoticeAt >= CONFIG.emptyNoticeCooldownMs) {
         emptyNoticeAt = now;
         toast('探索ポイントが足りないため開拓できません。しばらく待つと回復します。');
       }
-      if (result === 'opened' || result === 'tower' || result === 'memo') save();
+      if (
+        result === 'opened' ||
+        result === 'tower' ||
+        result === 'spring' ||
+        result === 'ruins' ||
+        result === 'memo'
+      )
+        save();
       else if (result === 'progress') queueSave();
       if (memo) showMemo(memo.alreadyReached);
       if (result === 'touch' || result === 'opened') smallEvent(held.tile, now);
@@ -1711,30 +1941,39 @@
     { passive: false },
   );
   window.addEventListener('resize', resize);
-  document.addEventListener('visibilitychange', () => {
+  function suspend() {
+    if (suspended) return;
+    // Flush while still online; further hidden/pagehide calls must not settle again.
+    save();
+    suspended = true;
     resetAtmosphere();
-    if (document.hidden) {
-      save();
-      pointers.clear();
-      gesture = null;
-      held = null;
-      pulses.length = 0;
-      towerReveals.clear();
-      openings.clear();
-      canvas.classList.remove('dragging');
-    } else {
-      TapWorld.settle(world);
-      updateHud();
-      queueSave();
-    }
+    pointers.clear();
+    gesture = null;
+    held = null;
+    pulses.length = 0;
+    towerReveals.clear();
+    openings.clear();
+    canvas.classList.remove('dragging');
+  }
+  function resume() {
+    if (!suspended || document.hidden) return;
+    const gained = TapWorld.settle(world, Date.now(), true);
+    suspended = false;
+    resetAtmosphere();
+    if (started) showResume(gained);
+    else resumeGains = gained;
+    updateHud();
+    save();
+    requestDraw();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) suspend();
+    else resume();
     requestDraw();
   });
-  window.addEventListener('pagehide', () => {
-    resetAtmosphere();
-    save();
-  });
+  window.addEventListener('pagehide', suspend);
   window.addEventListener('pageshow', () => {
-    resetAtmosphere();
+    resume();
     requestDraw();
   });
   updateHud();

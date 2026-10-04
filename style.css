@@ -36,6 +36,7 @@ header {
   pointer-events: none;
 }
 h1 {
+  white-space: nowrap;
   margin: 0 0 6px;
   font-family: Georgia, serif;
   font-weight: normal;
@@ -92,7 +93,107 @@ footer span {
   line-height: 1.8;
 }
 #notice {
+  white-space: pre-line;
   min-height: 18px;
+}
+
+#resources {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 12px;
+  letter-spacing: 0;
+  background: var(--tap-surface-color);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+.footer-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: space-between;
+}
+#town-panel {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(90px, env(safe-area-inset-bottom));
+  width: min(320px, calc(100% - 32px));
+  z-index: 4;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 18px;
+  border: 1px solid var(--tap-border-color);
+  border-radius: 14px;
+  background: var(--tap-surface-color);
+  box-shadow: 0 4px 18px #15251a30;
+  font-size: 13px;
+}
+#town-panel h2 {
+  margin: 8px 0;
+  font-size: 16px;
+}
+.town-heading {
+  position: sticky;
+  top: -14px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -14px -18px 0;
+  padding: 10px 18px;
+  background: var(--tap-surface-color);
+}
+#town-close,
+#backup-close {
+  float: right;
+}
+.facility {
+  border-top: 1px solid var(--tap-border-color);
+  padding: 10px 0;
+}
+.facility h3,
+.facility p {
+  margin: 0 0 6px;
+  line-height: 1.6;
+}
+.facility h3 {
+  font-size: 14px;
+}
+.facility button {
+  width: 100%;
+  scroll-margin-top: 74px;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+#backup-dialog label {
+  display: block;
+  margin-top: 16px;
+  font-size: 13px;
+}
+#backup-json,
+#import-file {
+  display: block;
+  width: 100%;
+  margin: 8px 0 16px;
+  font: inherit;
+  color: inherit;
+}
+#backup-json {
+  padding: 8px;
+  background: var(--tap-surface-color);
+  border: 1px solid var(--tap-border-color);
+  border-radius: 8px;
+}
+#import-file {
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  #resources {
+    grid-row: 3;
+    grid-column: 1 / -1;
+    text-align: center;
+  }
 }
 @media (max-width: 600px) {
   header {
@@ -233,6 +334,9 @@ header > div:first-child,
 }
 header span {
   color: var(--tap-text-color);
+}
+header > div:first-child {
+  flex-shrink: 0;
 }
 header .development-status {
   font-size: 10px;
