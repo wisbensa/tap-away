@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#263d2e" />
     <title>Tap Away</title>
-    <link rel="stylesheet" href="style.css?v=0.9.0" />
+    <link rel="stylesheet" href="style.css?v=0.9.1" />
   </head>
   <body>
     <main>
@@ -29,7 +29,7 @@
           <h2>設定</h2>
           <button id="settings-close" type="button">閉じる</button>
         </div>
-        <p>バージョン <span id="app-version">0.9.0</span></p>
+        <p>バージョン <span id="app-version">0.9.1</span></p>
         <button id="sound" type="button" aria-pressed="false">Sound OFF</button>
         <button id="notes" type="button">更新情報</button>
         <button id="help" type="button">遊び方・説明を見る</button>
@@ -40,7 +40,9 @@
           ><button id="dev-skin" type="button">DEV SKIN</button>
           <label for="view-trial">視点の比較</label>
           <select id="view-trial">
-            <option value="depth">立体感を強めた視点（試作）</option>
+            <option value="depth">左右も傾ける立体視点（試作）</option>
+            <option value="pitch">左右を変えず視点を下げる（試作）</option>
+            <option value="diagonal">横45度・低い視点（試作）</option>
             <option value="original">従来の視点</option>
           </select>
           <label for="arch-trial">石のアーチの比較</label>
@@ -151,9 +153,9 @@
       </dialog>
       <noscript>このゲームにはJavaScriptが必要です。</noscript>
     </main>
-    <script src="world.js?v=0.9.0"></script>
-    <script src="skin-loader.js?v=0.9.0"></script>
-    <script src="scenery-renderer.js?v=0.9.0"></script>
-    <script src="app.js?v=0.9.0"></script>
+    <script src="world.js?v=0.9.1"></script>
+    <script src="skin-loader.js?v=0.9.1"></script>
+    <script src="scenery-renderer.js?v=0.9.1"></script>
+    <script src="app.js?v=0.9.1"></script>
   </body>
 </html>

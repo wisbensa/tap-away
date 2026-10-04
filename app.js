@@ -6,8 +6,10 @@
     tileWidth: 76,
     tileHeight: 48,
     tileSkew: 16,
-    viewSkews: { original: 0, depth: 16 },
-    viewHeights: { original: 72, depth: 48 },
+    viewSkews: { original: 0, depth: 16, pitch: 0, diagonal: 0 },
+    viewHeights: { original: 72, depth: 48, pitch: 48, diagonal: 48 },
+    viewYaws: { original: 0, depth: 0, pitch: 0, diagonal: Math.PI / 4 },
+    viewYaw: 0,
     archTrial: 'full',
     sceneryReactionMs: 650,
     sceneryReactionCooldownMs: 1200,
@@ -145,19 +147,26 @@
     const next = CONFIG.viewHeights[event.target.value];
     if (!next) return;
     // Keep the ground coordinate at the viewport center fixed while comparing.
-    let focusX = -camera.x / (CONFIG.tileWidth * camera.zoom);
-    let focusY = (height * 0.02 - camera.y) / (CONFIG.tileHeight * camera.zoom);
-    for (let i = 0; i < 5; i++) {
-      focusX = (-camera.x / camera.zoom - focusY * CONFIG.tileSkew) / CONFIG.tileWidth;
-      focusY =
+    let focusX = 0,
+      focusY = 0;
+    const cosine = Math.cos(CONFIG.viewYaw),
+      sine = Math.sin(CONFIG.viewYaw);
+    for (let i = 0; i < 8; i++) {
+      const rotatedY =
         ((height * 0.02 - camera.y) / camera.zoom + heightAt(focusX, focusY) * CONFIG.heightScale) /
         CONFIG.tileHeight;
+      const rotatedX = (-camera.x / camera.zoom - rotatedY * CONFIG.tileSkew) / CONFIG.tileWidth;
+      focusX = rotatedX * cosine + rotatedY * sine;
+      focusY = -rotatedX * sine + rotatedY * cosine;
     }
-    const nextSkew = CONFIG.viewSkews[event.target.value];
-    camera.x -= focusY * (nextSkew - CONFIG.tileSkew) * camera.zoom;
-    camera.y -= focusY * (next - CONFIG.tileHeight) * camera.zoom;
+    const before = groundProjection(focusX, focusY);
     CONFIG.tileHeight = next;
-    CONFIG.tileSkew = nextSkew;
+    CONFIG.tileSkew = CONFIG.viewSkews[event.target.value];
+    CONFIG.viewYaw = CONFIG.viewYaws[event.target.value];
+    const after = groundProjection(focusX, focusY);
+    camera.x += (before.x - after.x) * camera.zoom;
+    camera.y += (before.y - after.y) * camera.zoom;
+    sortTiles();
     held = null;
     pointers.clear();
     gesture = null;
@@ -612,7 +621,12 @@
   setInterval(() => {
     if (!document.hidden && !suspended && started) queueSave();
   }, 15000);
-  tiles.sort((a, b) => a.y - b.y || a.x - b.x);
+  function sortTiles() {
+    const cosine = Math.cos(CONFIG.viewYaw),
+      sine = Math.sin(CONFIG.viewYaw);
+    tiles.sort((a, b) => (a.x - b.x) * sine + (a.y - b.y) * cosine || a.x - b.x);
+  }
+  sortTiles();
   const tilesByCoordinate = TapWorld.index(world);
   const monumentsByCoordinate = new Map(
     world.monuments.flatMap((monument) =>
@@ -767,10 +781,21 @@
     ctx.restore();
     return false;
   }
-  function project(x, y, z = 0) {
+  function groundProjection(x, y) {
+    const cosine = Math.cos(CONFIG.viewYaw),
+      sine = Math.sin(CONFIG.viewYaw);
+    const rotatedX = x * cosine - y * sine,
+      rotatedY = x * sine + y * cosine;
     return {
-      x: width / 2 + camera.x + (x * CONFIG.tileWidth + y * CONFIG.tileSkew) * camera.zoom,
-      y: height * 0.48 + camera.y + (y * CONFIG.tileHeight - z) * camera.zoom,
+      x: rotatedX * CONFIG.tileWidth + rotatedY * CONFIG.tileSkew,
+      y: rotatedY * CONFIG.tileHeight,
+    };
+  }
+  function project(x, y, z = 0) {
+    const ground = groundProjection(x, y);
+    return {
+      x: width / 2 + camera.x + ground.x * camera.zoom,
+      y: height * 0.48 + camera.y + (ground.y - z) * camera.zoom,
     };
   }
   function ease(t) {
@@ -1597,8 +1622,23 @@
     ctx.globalAlpha = alpha;
     if (monument.type === 'stone_arch' && CONFIG.archTrial === 'original') {
       if (!drawAsset('stone_arch', base, alpha))
-        drawArch(ctx, base.x, base.y, (CONFIG.tileWidth * camera.zoom * 2.4) / 136);
+        drawProjectedArch(base, (CONFIG.tileWidth * camera.zoom * 2.4) / 136);
     } else drawLandmarkStructure(monument, now);
+    ctx.restore();
+  }
+  function drawProjectedArch(base, scale) {
+    // Map the arch's horizontal axis into the same plane as its pillars and roof.
+    ctx.save();
+    ctx.translate(base.x, base.y);
+    ctx.transform(
+      Math.cos(CONFIG.viewYaw) + (CONFIG.tileSkew / CONFIG.tileWidth) * Math.sin(CONFIG.viewYaw),
+      (CONFIG.tileHeight / CONFIG.tileWidth) * Math.sin(CONFIG.viewYaw),
+      0,
+      1,
+      0,
+      0,
+    );
+    drawArch(ctx, 0, 0, scale);
     ctx.restore();
   }
   // Trial forms share ground projection and skin colors, without gameplay effects.
@@ -1631,7 +1671,7 @@
       const back = at(0.5, -0.65, 5),
         front = at(0.5, 1.65, 5);
       const scale = (CONFIG.tileWidth * camera.zoom * 2.6) / 136;
-      drawArch(ctx, back.x, back.y, scale);
+      drawProjectedArch(back, scale);
       // Deep piers and voussoir roof connect the rear and front arches.
       block(-0.8, -0.65, -0.23, 1.65, 5, 48);
       block(1.23, -0.65, 1.8, 1.65, 5, 48);
@@ -1647,7 +1687,7 @@
           stone.lineColor,
         );
       }
-      drawArch(ctx, front.x, front.y, scale);
+      drawProjectedArch(front, scale);
       return;
     }
     switch (monument.type) {
