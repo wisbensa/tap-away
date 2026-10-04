@@ -404,14 +404,13 @@
     const neighbors = [[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dy]) =>
       ({dx,dy,tile:tilesByCoordinate.get((tile.x+dx)+','+(tile.y+dy))}));
     const opened = neighbor => neighbor.tile?.road && displayState(neighbor.tile,now).visibility==='opened';
-    if (state.visibility==='preview') return neighbors.filter(opened);
     return neighbors.filter(neighbor => neighbor.tile?.road &&
       (opened(neighbor) || displayState(neighbor.tile,now).visibility==='preview' && towerFade(neighbor.tile,now)>0));
   }
   function drawRoad(tile, now) {
     const segments=roadSegments(tile,now);
     const state=displayState(tile,now);
-    if(!segments.length && (!tile.road || state.visibility!=='opened')) return;
+    if(!tile.road || state.visibility==='hidden' || state.visibility==='preview' && towerFade(tile,now)===0) return;
     const center=surface(tile.x+.5,tile.y+.5,now,tile);
     ctx.save();
     const bounds=corners(tile,now);
