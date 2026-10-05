@@ -1,12 +1,6 @@
 (() => {
   'use strict';
   const FORMAT_VERSION = 1;
-  const SELECTION_KEY = 'tap-away.dev.skin';
-  const available = Object.freeze([
-    Object.freeze({ id: 'default', label: '標準' }),
-    Object.freeze({ id: 'contrast', label: '配色比較（開発用）' }),
-    Object.freeze({ id: 'night-garden', label: '夜の庭' }),
-  ]);
   const terrainIds = ['grass', 'tree', 'rock', 'mine'];
   const assetIds = new Set([
     ...terrainIds,
@@ -14,7 +8,13 @@
     'tower',
     'spring',
     'ruins',
-    'stone_arch',
+    'doll_keeper',
+    'ball_chasers',
+    'couple_under_trees',
+    'child_on_rock',
+    'guard_in_wooden_frame',
+    'piper_and_birds',
+    'elder_with_black_dog',
     'seated_statue',
     'long_statue',
     'paired_statue',
@@ -157,23 +157,6 @@
           ],
         ],
       },
-      city: {
-        bodyColor: '#e0cd9d',
-        roofColor: '#76523c',
-        doorColor: '#354d3a',
-        body: [
-          { x: -17, y: 0 },
-          { x: 17, y: 0 },
-          { x: 17, y: -29 },
-          { x: -17, y: -29 },
-        ],
-        roof: [
-          { x: -21, y: -29 },
-          { x: -15, y: -41 },
-          { x: 15, y: -41 },
-          { x: 21, y: -29 },
-        ],
-      },
       tower: {
         bodyColor: '#d3c498',
         detailColor: '#3d513b',
@@ -192,9 +175,7 @@
           { x: -10, y: -62 },
         ],
       },
-      spring: { bodyColor: '#d3c498', waterColor: '#649caa', detailColor: '#c4e4df' },
-      ruins: { bodyColor: '#d3c498', detailColor: '#3d513b' },
-      stone_arch: {
+      landmarkBase: {
         baseColor: '#a3a592',
         faceColor: '#d3ccaf',
         shadeColor: '#969783',
@@ -880,8 +861,6 @@
       },
     },
     lines: {
-      road: '#c7b181',
-      roadEdge: '#766d5044',
       hidden: '#eeeade16',
       edge: '#4f633a44',
       eligible: '#75856b',
@@ -1271,20 +1250,6 @@
     for (const [key, variable] of Object.entries(uiVariables))
       style.setProperty(variable, skin.ui[key]);
   }
-  function selection() {
-    try {
-      const value = globalThis.localStorage?.getItem(SELECTION_KEY);
-      return available.some((s) => s.id === value) ? value : null;
-    } catch {
-      return null;
-    }
-  }
-  function select(id) {
-    if (id !== null && !available.some((s) => s.id === id)) throw Error('Unknown bundled skin');
-    if (!globalThis.localStorage) throw Error('Development settings cannot be saved');
-    if (id === null) globalThis.localStorage.removeItem(SELECTION_KEY);
-    else globalThis.localStorage.setItem(SELECTION_KEY, id);
-  }
   const baseUrl = () =>
     typeof document !== 'undefined' && document.baseURI ? document.baseURI : 'http://localhost/';
   async function read(url, json) {
@@ -1293,13 +1258,10 @@
     if (!response.ok) throw Error('Appearance file unavailable');
     return json ? response.json() : response.text();
   }
-  function packageUrl(id, file) {
-    return new URL(`skins/${id}/${file}`, baseUrl()).href;
-  }
-  function resolveAssets(patch, id) {
+  function resolveAssets(patch) {
     if (patch?.assets)
       for (const descriptor of Object.values(patch.assets))
-        descriptor.url = new URL(descriptor.path, packageUrl(id, 'skin.json')).href;
+        descriptor.url = new URL(descriptor.path, baseUrl()).href;
     return patch;
   }
   function imageFor(descriptor) {
@@ -1345,37 +1307,19 @@
   let pendingLoad;
   const api = {
     current: clone(builtin),
-    available,
-    selection,
-    select,
     validate,
     merge,
     relativeAssetPath,
   };
   async function load() {
-    const results = await Promise.allSettled([
-      read(packageUrl('default', 'skin.json'), true),
-      read(new URL('config/appearance.json', baseUrl()).href, true),
-    ]);
-    const standardPatch =
-      results[0].status === 'fulfilled'
-        ? resolveAssets(validate(results[0].value), 'default')
-        : null;
-    const standard = merge(builtin, standardPatch);
-    const configured =
-      results[1].status === 'fulfilled' && plain(results[1].value) ? results[1].value.skin : null;
-    let id = selection() || (available.some((s) => s.id === configured) ? configured : 'default');
-    let skin = standard;
-    if (id !== 'default') {
-      const files = await Promise.allSettled([read(packageUrl(id, 'skin.json'), true)]);
-      const patch =
-        files[0].status === 'fulfilled' ? resolveAssets(validate(files[0].value), id) : null;
-      if (patch) {
-        skin = merge(standard, patch);
-      } else id = 'default';
-    }
-    skin.id = id;
-    skin.label = available.find((s) => s.id === id).label;
+    let patch = null;
+    try {
+      patch = resolveAssets(
+        validate(await read(new URL('config/look.json', baseUrl()).href, true)),
+      );
+    } catch {}
+    const standard = merge(builtin, patch);
+    const skin = standard;
     await loadAssets(skin, standard);
     api.current = skin;
     applyUi(skin);

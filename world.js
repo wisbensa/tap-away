@@ -12,60 +12,40 @@
     'long_statue',
     'paired_statue',
   ];
-  // Trial line-up: designs are provisional, persisted IDs never change meaning.
   const MONUMENTS = Object.freeze({
-    stone_arch: '石のアーチ',
-    modern_building: '窓のないビル',
-    giant_statue: '巨大な立像',
-    stepped_pyramid: '段のある建造物',
-    ring_gate: '円環の門',
-    twin_obelisks: '双子の石柱',
-    silent_dome: '静かなドーム',
-    long_colonnade: '長い列柱',
-    stone_chair: '巨大な石の椅子',
-    spiral_tower: '螺旋の建造物',
+    doll_keeper: '人形を抱く大きな子',
+    ball_chasers: '球を追う三人',
+    couple_under_trees: '木陰のふたり',
+    child_on_rock: '岩上の子',
+    guard_in_wooden_frame: '木枠の番人',
+    piper_and_birds: '鳥たちの笛吹き',
+    elder_with_black_dog: '黒犬と杖の老人',
   });
+  // Provisional pacing and density values: evaluate a leisurely ~30-minute route on devices.
   const RULES = {
-    saveVersion: 10,
+    saveVersion: 11,
     extent: 30,
-    maxPoints: 1200,
-    recoveryMs: 21600000,
-    offlineProductionMs: 43200000,
-    // Phase 2 trial balance: edit here after device playtests.
-    productionPerHour: { tree: 6, rock: 4, mine: 2 },
-    springPoints: 240,
-    facilityMetalStartLevel: 3,
-    facilityMetalPerLevel: 1,
-    facilities: {
-      inn: { maxLevel: 5, baseCost: { wood: 24, rock: 8, metal: 0 }, growth: 2 },
-      well: { maxLevel: 5, baseCost: { wood: 16, rock: 16, metal: 0 }, growth: 2 },
-      workshop: { maxLevel: 10, baseCost: { wood: 32, rock: 12, metal: 0 }, growth: 1.7 },
-    },
+    monumentCount: 3,
     towerRadius: 5,
-    enclosureLimit: 16,
-    costs: { grass: 4, tree: 7, rock: 10, mine: 15 },
-    // These are initial placement/balance values, not additional gameplay rules.
+    costs: { grass: 12, tree: 18, rock: 24, mine: 30 },
     monumentMinDistance: 16,
     monumentMaxDistance: 24,
+    monumentSpacing: 12,
     monumentProtectionWidth: 1,
-    memoOpenedThreshold: 24,
-    memoManualInterval: 24,
+    enclosureLimit: 16,
+    memoOpenedThreshold: 8,
+    memoManualInterval: 12,
     memoDiscoverZoom: 1.55,
     sceneryTypes: SCENERY_TYPES,
-    sceneryCount: 50,
-    // Trial distribution: five statue forms x6, four plant/animal forms x5.
-    sceneryCounts: Object.fromEntries(
-      SCENERY_TYPES.map((type) => [type, type.endsWith('_statue') ? 6 : 5]),
-    ),
-    monumentSpacing: 9,
+    sceneryCount: 18,
     sceneryMinDistance: 6,
     scenerySpecialMargin: 2,
+    sceneryCounts: Object.fromEntries(SCENERY_TYPES.map((type) => [type, 2])),
     terrainBands: [
       { distance: 5, grass: 0.83, tree: 0.152, rock: 0.017 },
       { distance: 10, grass: 0.75, tree: 0.215, rock: 0.03 },
       { distance: 20, grass: 0.62, tree: 0.31, rock: 0.055 },
-      { distance: 25, grass: 0.56, tree: 0.32, rock: 0.085 },
-      { distance: Infinity, grass: 0.51, tree: 0.335, rock: 0.11 },
+      { distance: Infinity, grass: 0.56, tree: 0.32, rock: 0.085 },
     ],
   };
   const SALT = {
@@ -113,9 +93,16 @@
       return globalThis.crypto.getRandomValues(new Uint32Array(1))[0];
     return Math.floor(Math.random() * 0x100000000) >>> 0;
   }
-  function requiredCost(kind, x, y, road) {
-    const d = Math.max(Math.abs(x), Math.abs(y));
-    return Math.max(1, RULES.costs[kind] + Math.max(0, Math.ceil(d / 5) - 1) + (road ? -1 : 0));
+  // Smooth seeded perimeter, with a generous solid center; four-neighbor topology stays intact.
+  function validPosition(seed, x, y) {
+    const angle = Math.atan2(y, x),
+      phase = ((seed % 1000) / 1000) * Math.PI * 2;
+    const radius =
+      RULES.extent - 2 + 1.2 * Math.sin(angle * 3 + phase) + 0.7 * Math.cos(angle * 5 - phase);
+    return Math.abs(x) <= RULES.extent && Math.abs(y) <= RULES.extent && Math.hypot(x, y) <= radius;
+  }
+  function requiredCost(kind) {
+    return RULES.costs[kind];
   }
   function generateTile(seed, x, y) {
     if (!isSeed(seed) || !isCoordinate(x) || !isCoordinate(y))
@@ -152,7 +139,7 @@
     const positions = [];
     for (let y = -RULES.extent; y <= RULES.extent; y++) {
       for (let x = -RULES.extent; x <= RULES.extent; x++)
-        if (accept(x, y)) positions.push({ x, y });
+        if (validPosition(seed, x, y) && accept(x, y)) positions.push({ x, y });
     }
     return positions.sort(
       (a, b) => hash(seed, a.x, a.y, salt) - hash(seed, b.x, b.y, salt) || a.y - b.y || a.x - b.x,
@@ -183,108 +170,44 @@
         towerOrder: order,
       }),
     );
-    const targets = [
-      { kind: 'spring', position: transform(roll(11, 4, 9), -roll(12, 5, 10)) },
-      { kind: 'ruins', position: transform(roll(13, 11, 17), -roll(14, 3, 9)) },
-    ];
-    for (const { kind, position } of targets) {
-      const candidates = rankedCoordinates(
-        w.seed,
-        SALT.landmarks ^ (kind === 'spring' ? 1 : 2),
-        (x, y) => Math.max(Math.abs(x), Math.abs(y)) >= 5,
-      );
-      candidates.sort((a, b) => distance(a, position) - distance(b, position));
-      const selected = candidates.find((p) => !m.get(key(p.x, p.y)).landmark);
-      if (!selected) throw Error('Cannot place required landmark');
-      Object.assign(m.get(key(selected.x, selected.y)), {
-        landmark: kind,
-        landmarkId: kind + '-1',
-      });
-    }
-  }
-  function placeRoads(w, m) {
-    const blocked = new Set([
-      '0,0',
-      ...w.tiles.filter((t) => t.landmark).map((t) => key(t.x, t.y)),
-      ...w.monuments.flatMap((o) => o.occupied).map((p) => key(p.x, p.y)),
-      ...w.scenery.map((p) => key(p.x, p.y)),
-    ]);
-    const adjacent = (p) =>
-      [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ]
-        .map(([dx, dy]) => m.get(key(p.x + dx, p.y + dy)))
-        .filter((t) => t && t.kind === 'grass' && !blocked.has(key(t.x, t.y)));
-    const named = (kind) => w.tiles.find((t) => t.landmark === kind);
-    const ends = [
-      { x: 0, y: 0 },
-      named('spring'),
-      named('ruins'),
-      w.tiles.find((t) => t.towerOrder === 4),
-    ];
-    const starts = adjacent(ends[0]);
-    let start = starts[hash(w.seed, 0, 0, SALT.road) % starts.length];
-    // Stay on existing grass; unreachable destinations stop at the closest reachable cell.
-    for (let i = 1; i < ends.length; i++) {
-      const targets = new Set(adjacent(ends[i]).map((t) => key(t.x, t.y)));
-      const queue = [start],
-        previous = new Map([[key(start.x, start.y), null]]);
-      let end = start;
-      const remaining = (t) => Math.abs(t.x - ends[i].x) + Math.abs(t.y - ends[i].y);
-      for (let n = 0; n < queue.length; n++) {
-        const tile = queue[n],
-          tileKey = key(tile.x, tile.y);
-        if (remaining(tile) < remaining(end)) end = tile;
-        if (targets.has(tileKey)) {
-          end = tile;
-          break;
-        }
-        for (const next of adjacent(tile)) {
-          const nextKey = key(next.x, next.y);
-          if (!previous.has(nextKey)) {
-            previous.set(nextKey, tileKey);
-            queue.push(next);
-          }
-        }
-      }
-      for (let p = key(end.x, end.y); p !== null; p = previous.get(p)) m.get(p).road = true;
-      start = end;
-    }
-    for (const tile of w.tiles) {
-      if (tile.road) tile.requiredCost = requiredCost(tile.kind, tile.x, tile.y, true);
-      if (tile.visibility === 'opened') tile.developmentProgress = tile.requiredCost;
-    }
   }
   function placeMonument(w) {
-    const specials = [{ x: 0, y: 0 }, ...w.tiles.filter((t) => t.landmark)];
-    w.monuments = [];
-    for (const [n, type] of Object.keys(MONUMENTS).entries()) {
+    const m = index(w);
+    // Distinct seeded choices and nearest-next guidance are provisional selection rules.
+    const types = Object.keys(MONUMENTS)
+      .map((type, n) => ({ type, n }))
+      .sort(
+        (a, b) =>
+          hash(w.seed, a.n, 0, SALT.monument ^ 7) - hash(w.seed, b.n, 0, SALT.monument ^ 7) ||
+          a.n - b.n,
+      );
+    for (let n = 0; n < RULES.monumentCount; n++) {
       const candidates = rankedCoordinates(w.seed, SALT.monument ^ n, (x, y) => {
-        const d = Math.max(Math.abs(x), Math.abs(y));
-        return (
-          d >= (n === 0 ? RULES.monumentMinDistance : 10) &&
-          d <= (n === 0 ? RULES.monumentMaxDistance : RULES.extent - 2) &&
-          Math.abs(x) < RULES.extent &&
-          Math.abs(y) < RULES.extent
-        );
+        const d = Math.hypot(x, y);
+        return d >= RULES.monumentMinDistance && d <= RULES.monumentMaxDistance;
       });
       const position = candidates.find(
         (p) =>
-          specials.every((q) => distance(p, q) > 3) &&
-          w.monuments.every((q) => distance(p, q) >= RULES.monumentSpacing),
+          w.tiles.filter((t) => t.landmark).every((t) => distance(p, t) > 3) &&
+          w.monuments.every((q) => distance(p, q) >= RULES.monumentSpacing) &&
+          [0, 1].every((dx) => [0, 1].every((dy) => m.has(key(p.x + dx, p.y + dy)))),
       );
-      if (!position) throw Error('Cannot place required landmark: ' + type);
-      const occupied = [];
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) occupied.push({ x: position.x + dx, y: position.y + dy });
+      if (!position) throw Error('Cannot place required landmark');
+      const occupied = [0, 1].flatMap((dy) =>
+        [0, 1].map((dx) => ({ x: position.x + dx, y: position.y + dy })),
+      );
+      for (const p of occupied) {
+        const tile = m.get(key(p.x, p.y));
+        if (tile.kind === 'mine') {
+          tile.kind = 'rock';
+          tile.requiredCost = requiredCost('rock');
+        }
+      }
       w.monuments.push({
         id: 'monument-' + (n + 1),
-        type,
+        type: types[n].type,
         ...position,
-        orientation: hash(w.seed, position.x, position.y, SALT.monument ^ 1) % 4,
+        orientation: 0,
         occupied,
       });
     }
@@ -338,114 +261,39 @@
     if (!finite(now) || !isSeed(seed)) throw Error('Invalid generation input');
     const tiles = [];
     for (let y = -RULES.extent; y <= RULES.extent; y++)
-      for (let x = -RULES.extent; x <= RULES.extent; x++) tiles.push(generateTile(seed, x, y));
+      for (let x = -RULES.extent; x <= RULES.extent; x++)
+        if (validPosition(seed, x, y)) tiles.push(generateTile(seed, x, y));
     const w = {
       saveVersion: RULES.saveVersion,
-      worldVersion: 1,
-      phase: 2,
-      savedAt: now,
-      lastCalculatedAt: now,
-      bounds: bounds(),
+      worldVersion: 2,
+      generatorVersion: 6,
       seed,
-      generatorVersion: 5,
-      points: RULES.maxPoints,
-      resources: { wood: 0, rock: 0, metal: 0 },
-      facilities: { inn: 0, well: 0, workshop: 0 },
-      destination: null,
+      bounds: bounds(),
+      savedAt: now,
       introduced: false,
-      learning: { resources: [], town: 'waiting', facilityNotified: false },
+      completionDismissed: false,
       tiles,
       monuments: [],
       scenery: [],
+      memoHistory: [],
+      memoManualOpened: 0,
     };
-    const m = index(w);
-    placeLandmarks(w, m);
+    placeLandmarks(w, index(w));
+    for (const t of w.tiles)
+      if (t.landmark === 'tower' && t.kind === 'mine') {
+        t.kind = 'rock';
+        t.requiredCost = requiredCost('rock');
+      }
     placeMonument(w);
     placeScenery(w);
-    placeRoads(w, m);
     w.memo = {
       status: 'waiting',
       clue: null,
       monumentId: w.monuments[0].id,
       asideId: null,
+      hintId: null,
     };
-    w.memoHistory = [];
-    w.memoManualOpened = 0;
-    chooseDestination(w);
     return validate(w);
-  }
-  function maximumPoints(w, level = w.facilities.inn) {
-    return Math.round(RULES.maxPoints * (1 + 0.2 * level));
-  }
-  function recoveryMultiplier(w, level = w.facilities.well) {
-    return 1 + 0.1 * level;
-  }
-  function recoveryRate(w) {
-    return (RULES.maxPoints / RULES.recoveryMs) * recoveryMultiplier(w);
-  }
-  function developmentPower(w, level = w.facilities.workshop) {
-    return 1 + level + (w.tiles.some((t) => t.landmark === 'ruins' && t.effectApplied) ? 1 : 0);
-  }
-  function resourceTileCounts(w) {
-    const counts = { tree: 0, rock: 0, mine: 0 };
-    for (const tile of w.tiles)
-      if (tile.visibility === 'opened' && Object.hasOwn(counts, tile.kind)) counts[tile.kind]++;
-    return counts;
-  }
-  function productionRates(w) {
-    const rates = { wood: 0, rock: 0, metal: 0 };
-    const resource = { tree: 'wood', rock: 'rock', mine: 'metal' };
-    for (const t of w.tiles)
-      if (t.visibility === 'opened' && resource[t.kind])
-        rates[resource[t.kind]] += RULES.productionPerHour[t.kind];
-    return rates;
-  }
-  function settle(w, now = Date.now(), offline = false) {
-    const gained = { points: 0, wood: 0, rock: 0, metal: 0 };
-    if (!finite(now)) return gained;
-    const elapsed = Math.max(0, now - w.lastCalculatedAt);
-    const points = Math.min(maximumPoints(w), w.points + elapsed * recoveryRate(w));
-    gained.points = points - w.points;
-    w.points = points;
-    const hours = (offline ? Math.min(elapsed, RULES.offlineProductionMs) : elapsed) / 3600000;
-    if (hours > 0) {
-      const rates = productionRates(w);
-      for (const k of ['wood', 'rock', 'metal']) {
-        const next = w.resources[k] + rates[k] * hours;
-        if (!finite(next)) throw Error('Resource calculation overflow');
-        gained[k] = next - w.resources[k];
-        w.resources[k] = next;
-      }
-    }
-    w.lastCalculatedAt = Math.max(now, w.lastCalculatedAt);
-    return gained;
-  }
-  function facilityCost(w, id) {
-    if (!Object.hasOwn(RULES.facilities, id)) return null;
-    const rule = RULES.facilities[id],
-      level = w.facilities[id];
-    if (level >= rule.maxLevel) return null;
-    const factor = rule.growth ** level;
-    return {
-      wood: Math.ceil(rule.baseCost.wood * factor),
-      rock: Math.ceil(rule.baseCost.rock * factor),
-      // Metal enters at Lv3; early construction is possible before finding a mine.
-      metal: Math.ceil(
-        (rule.baseCost.metal +
-          Math.max(0, level + 2 - RULES.facilityMetalStartLevel) * RULES.facilityMetalPerLevel) *
-          factor,
-      ),
-    };
-  }
-  function upgrade(w, id, now = Date.now()) {
-    const cost = facilityCost(w, id);
-    if (!cost) return 'limit';
-    settle(w, now);
-    if (Object.keys(cost).some((k) => w.resources[k] < cost[k])) return 'insufficient';
-    for (const k of Object.keys(cost)) w.resources[k] -= cost[k];
-    w.facilities[id]++;
-    if (id === 'inn') w.points = maximumPoints(w);
-    return 'upgraded';
   }
   function applyTowerEffect(w, tower) {
     for (const tile of w.tiles)
@@ -457,17 +305,10 @@
     if (t.visibility === 'opened') return;
     t.developmentProgress = t.requiredCost;
     t.visibility = 'opened';
+    if (t.landmark === 'tower' && !t.effectApplied) applyTowerEffect(w, t);
     neighbors(t, m).forEach((n) => {
       if (n.visibility === 'hidden') n.visibility = 'preview';
     });
-    if (t.landmark === 'tower' && !t.effectApplied) {
-      applyTowerEffect(w, t);
-    }
-    if ((t.landmark === 'spring' || t.landmark === 'ruins') && !t.effectApplied) {
-      t.effectApplied = true;
-      if (t.landmark === 'spring')
-        w.points = Math.min(maximumPoints(w), w.points + RULES.springPoints);
-    }
   }
   function completeMonument(w, monument, m) {
     const entries = monument.occupied
@@ -513,21 +354,17 @@
     return regions;
   }
   function develop(w, t, now = Date.now(), onComplete) {
-    settle(w, now);
     const m = index(w);
     if (m.get(key(t.x, t.y)) !== t) return 'blocked';
     if (!eligible(t, m)) return 'blocked';
-    if (w.points < 1) return 'empty';
     // Check the pre-tap state: the opening that first meets the threshold cannot
     // place the clue, and automatic openings only qualify a later manual tap.
     const memoReady =
       w.memo.status === 'waiting' &&
-      w.tiles.some((tile) => tile.towerOrder === 0 && tile.effectApplied) &&
       w.tiles.filter((tile) => tile.visibility === 'opened').length >= RULES.memoOpenedThreshold;
     const nextTarget = nextMemoTarget(w);
     const nextReady = !!nextTarget && w.memoManualOpened >= RULES.memoManualInterval;
-    w.points--;
-    t.developmentProgress = Math.min(t.requiredCost, t.developmentProgress + developmentPower(w));
+    t.developmentProgress = Math.min(t.requiredCost, t.developmentProgress + 1);
     if (t.developmentProgress < t.requiredCost) return 'progress';
     const previousMonuments = w.monuments.map((monument) => ({
       monument,
@@ -551,6 +388,7 @@
         clue: null,
         monumentId: nextTarget.id,
         asideId: null,
+        hintId: null,
       };
       w.memoManualOpened = 0;
     } else if (nextTarget && !nextReady) {
@@ -563,7 +401,9 @@
       w.memo.status = 'placed';
       w.memo.clue = { x: t.x, y: t.y };
       w.memo.asideId = chooseMemoAside(w);
+      w.memo.hintId = chooseMemoHint(w);
     }
+    const exhaustedMemoPlaced = placeExhaustedMemo(w);
     const monumentReached =
       previousMonuments.find((p) => !p.reached && monumentStatus(w, p.monument, m).reached)
         ?.monument || null;
@@ -571,14 +411,13 @@
       previousMonuments.find(
         (p) => !p.fullyRevealed && monumentStatus(w, p.monument, m).fullyRevealed,
       )?.monument || null;
-    if (t.landmark === 'tower') chooseDestination(w);
     if (onComplete)
       onComplete({
         tile: t,
         regions,
         automatic,
         monumentAutomatic,
-        memoPlaced,
+        memoPlaced: memoPlaced || exhaustedMemoPlaced,
         monumentReached,
         monumentRevealed,
       });
@@ -616,6 +455,36 @@
       !w.scenery.some((object) => object.x === t.x && object.y === t.y)
     );
   }
+  // Only a fully opened map may issue a new clue on previously opened ground.
+  function placeExhaustedMemo(w) {
+    if (!w.tiles.every((tile) => tile.visibility === 'opened')) return false;
+    const target = nextMemoTarget(w);
+    if (!target) return false;
+    const previousClue = w.memo.clue;
+    const used = new Set([...w.memoHistory, w.memo].map((memo) => key(memo.clue.x, memo.clue.y)));
+    const candidates = w.tiles.filter(
+      (tile) => ordinaryMemoTile(w, tile) && !used.has(key(tile.x, tile.y)),
+    );
+    candidates.sort(
+      (a, b) =>
+        distance(a, previousClue) - distance(b, previousClue) ||
+        hash(w.seed, a.x, a.y, 0x13571629) - hash(w.seed, b.x, b.y, 0x13571629),
+    );
+    const tile = candidates[0];
+    if (!tile) return false;
+    w.memoHistory.push(w.memo);
+    w.memoManualOpened = 0;
+    w.memo = {
+      status: 'placed',
+      clue: { x: tile.x, y: tile.y },
+      monumentId: target.id,
+      asideId: null,
+      hintId: null,
+    };
+    w.memo.asideId = chooseMemoAside(w);
+    w.memo.hintId = chooseMemoHint(w);
+    return true;
+  }
   function collectMemo(w, t, zoom) {
     if (
       !finite(zoom) ||
@@ -631,30 +500,20 @@
     const monument = w.monuments.find((object) => object.id === w.memo.monumentId);
     const alreadyReached = monumentStatus(w, monument).reached;
     w.memo.status = 'collected';
-    return { monument, alreadyReached };
-  }
-  function chooseDestination(w) {
-    const remaining = w.tiles
-      .filter((t) => t.towerOrder === 0 && !t.effectApplied)
-      .sort((a, b) => a.towerOrder - b.towerOrder);
-    w.destination = remaining.length ? { x: remaining[0].x, y: remaining[0].y } : null;
+    const exhaustedMemoPlaced = placeExhaustedMemo(w);
+    return { monument, alreadyReached, exhaustedMemoPlaced };
   }
   function destinations(w, m = index(w)) {
-    const result = [],
-      seen = new Set();
-    const add = (p) => {
-      if (!seen.has(key(p.x, p.y))) {
-        seen.add(key(p.x, p.y));
-        result.push({ x: p.x, y: p.y });
-      }
-    };
-    const tower = w.destination && m.get(key(w.destination.x, w.destination.y));
-    if (tower?.towerOrder === 0 && !tower.effectApplied) add(tower);
-    if (w.memo.status === 'collected') {
-      const monument = w.monuments.find((object) => object.id === w.memo.monumentId);
-      if (monument && !monumentStatus(w, monument, m).reached) add(monument);
-    }
-    return result;
+    const target = w.monuments.find((o) => o.id === w.memo.monumentId);
+    return w.memo.status === 'collected' && !monumentStatus(w, target, m).reached
+      ? [{ x: target.x, y: target.y }]
+      : [];
+  }
+  function isComplete(w) {
+    return (
+      [...w.memoHistory, w.memo].filter((m) => m.status === 'collected').length ===
+        RULES.monumentCount && w.monuments.every((o) => monumentStatus(w, o).reached)
+    );
   }
   function protectedMonumentCoordinates(w, width = RULES.monumentProtectionWidth) {
     if (!Number.isInteger(width) || width < 0) throw Error('Invalid protection width');
@@ -684,209 +543,129 @@
     if (
       !w ||
       w.saveVersion !== RULES.saveVersion ||
-      w.worldVersion !== 1 ||
-      w.phase !== 2 ||
-      ![4, 5].includes(w.generatorVersion) ||
+      w.worldVersion !== 2 ||
+      w.generatorVersion !== 6 ||
       !isSeed(w.seed) ||
       !finite(w.savedAt) ||
-      !finite(w.lastCalculatedAt) ||
-      !finite(w.points) ||
-      w.points < 0 ||
-      !w.facilities ||
-      Array.isArray(w.facilities) ||
-      !w.resources ||
-      Array.isArray(w.resources) ||
-      w.points > maximumPoints(w) ||
       typeof w.introduced !== 'boolean' ||
+      typeof w.completionDismissed !== 'boolean' ||
       !Array.isArray(w.tiles) ||
-      w.tiles.length !== 3721
+      !w.bounds ||
+      Object.entries(bounds()).some(([k, v]) => w.bounds[k] !== v)
     )
       fail();
-    const learning = w.learning;
-    if (
-      !learning ||
-      Array.isArray(learning) ||
-      !Array.isArray(learning.resources) ||
-      new Set(learning.resources).size !== learning.resources.length ||
-      learning.resources.some((kind) => !['tree', 'rock', 'mine'].includes(kind)) ||
-      !['waiting', 'guiding', 'done'].includes(learning.town) ||
-      typeof learning.facilityNotified !== 'boolean'
-    )
-      fail();
-    const expectedBounds = bounds();
-    if (!w.bounds || Object.keys(expectedBounds).some((k) => w.bounds[k] !== expectedBounds[k]))
-      fail();
+    let expectedCount = 0;
+    for (let y = -RULES.extent; y <= RULES.extent; y++)
+      for (let x = -RULES.extent; x <= RULES.extent; x++)
+        if (validPosition(w.seed, x, y)) expectedCount++;
+    if (w.tiles.length !== expectedCount) fail();
+    const coordinate = (p) =>
+      p && Number.isInteger(p.x) && Number.isInteger(p.y) && validPosition(w.seed, p.x, p.y);
     const seen = new Set(),
       ids = new Set(),
-      towers = [],
-      landmarks = [],
       occupied = new Set();
-    const coordinate = (p) =>
-      p &&
-      Number.isInteger(p.x) &&
-      Number.isInteger(p.y) &&
-      Math.abs(p.x) <= RULES.extent &&
-      Math.abs(p.y) <= RULES.extent;
     const addId = (id) => {
       if (typeof id !== 'string' || !id || id.length > 80 || ids.has(id)) fail();
       ids.add(id);
     };
-    const orientation = (n) => Number.isInteger(n) && n >= 0 && n <= 3;
     for (const t of w.tiles) {
       if (
         !coordinate(t) ||
         seen.has(key(t.x, t.y)) ||
         !Object.hasOwn(RULES.costs, t.kind) ||
+        !isSeed(t.seed) ||
         !['hidden', 'preview', 'opened'].includes(t.visibility) ||
-        !Number.isSafeInteger(t.requiredCost) ||
+        !Number.isInteger(t.requiredCost) ||
         t.requiredCost < 1 ||
-        !finite(t.developmentProgress) ||
+        t.requiredCost > 64 ||
+        !Number.isInteger(t.developmentProgress) ||
         t.developmentProgress < 0 ||
         t.developmentProgress > t.requiredCost ||
-        typeof t.road !== 'boolean' ||
-        typeof t.effectApplied !== 'boolean' ||
-        !isSeed(t.seed) ||
-        ![null, 'tower', 'spring', 'ruins'].includes(t.landmark) ||
         (t.visibility === 'opened' && t.developmentProgress !== t.requiredCost) ||
         (t.visibility === 'hidden' && t.developmentProgress !== 0) ||
         (t.visibility === 'preview' && t.developmentProgress === t.requiredCost) ||
-        (t.effectApplied && (!t.landmark || t.visibility !== 'opened')) ||
-        (t.landmark && t.visibility === 'opened' && !t.effectApplied)
+        ![null, 'tower'].includes(t.landmark) ||
+        t.road !== false ||
+        (t.landmark === null
+          ? t.landmarkId !== null || t.towerOrder !== null || t.effectApplied !== false
+          : !Number.isInteger(t.towerOrder) ||
+            t.towerOrder < 0 ||
+            t.towerOrder > 4 ||
+            typeof t.effectApplied !== 'boolean' ||
+            t.effectApplied !== (t.visibility === 'opened') ||
+            t.kind === 'mine')
       )
         fail();
       seen.add(key(t.x, t.y));
-      if (t.landmark === null) {
-        if (t.landmarkId !== null || t.towerOrder !== null) fail();
-      } else {
-        addId(t.landmarkId);
-        landmarks.push(t);
-        if (t.landmark === 'tower') {
-          if (
-            !Number.isInteger(t.towerOrder) ||
-            t.towerOrder < 0 ||
-            t.towerOrder > 4 ||
-            (t.visibility === 'opened' && !t.effectApplied)
-          )
-            fail();
-          towers.push(t);
-        } else if (t.towerOrder !== null) fail();
-      }
+      if (t.landmark) addId(t.landmarkId);
     }
-    const m = index(w),
-      city = m.get('0,0');
-    if (
-      !city ||
-      city.visibility !== 'opened' ||
-      city.kind !== 'grass' ||
-      city.landmark !== null ||
-      towers.length !== 5 ||
-      new Set(towers.map((t) => t.towerOrder)).size !== 5 ||
-      landmarks.filter((t) => t.landmark === 'spring').length !== 1 ||
-      landmarks.filter((t) => t.landmark === 'ruins').length !== 1
-    )
-      fail();
-    if (!Array.isArray(w.monuments) || w.monuments.length !== (w.generatorVersion === 4 ? 1 : 10))
-      fail();
-    for (const monument of w.monuments) {
+    const m = index(w);
+    if (m.get('0,0')?.visibility !== 'opened') fail();
+    const towers = w.tiles.filter((t) => t.landmark === 'tower');
+    if (towers.length !== 5 || new Set(towers.map((t) => t.towerOrder)).size !== 5) fail();
+    if (!Array.isArray(w.monuments) || w.monuments.length !== RULES.monumentCount) fail();
+    for (const o of w.monuments) {
       if (
-        !coordinate(monument) ||
-        !(w.generatorVersion === 4
-          ? monument.type === 'stone_arch'
-          : Object.hasOwn(MONUMENTS, monument.type)) ||
-        !orientation(monument.orientation) ||
-        !Array.isArray(monument.occupied) ||
-        monument.occupied.length !== 9
+        !coordinate(o) ||
+        !Object.hasOwn(MONUMENTS, o.type) ||
+        o.orientation !== 0 ||
+        !Array.isArray(o.occupied) ||
+        o.occupied.length !== 4
       )
         fail();
-      addId(monument.id);
-      for (const p of monument.occupied) {
+      addId(o.id);
+      for (const p of o.occupied) {
         if (
           !coordinate(p) ||
-          Math.abs(p.x - monument.x) > 1 ||
-          Math.abs(p.y - monument.y) > 1 ||
+          ![0, 1].includes(p.x - o.x) ||
+          ![0, 1].includes(p.y - o.y) ||
           occupied.has(key(p.x, p.y)) ||
           (p.x === 0 && p.y === 0) ||
-          m.get(key(p.x, p.y)).landmark !== null
+          m.get(key(p.x, p.y)).kind === 'mine' ||
+          m.get(key(p.x, p.y)).landmark
         )
           fail();
         occupied.add(key(p.x, p.y));
       }
+      const opened = o.occupied.filter((p) => m.get(key(p.x, p.y)).visibility === 'opened').length;
+      if (opened !== 0 && opened !== 4) fail();
     }
-    if (w.generatorVersion === 5 && new Set(w.monuments.map((o) => o.type)).size !== 10) fail();
-    if (
-      !Array.isArray(w.scenery) ||
-      w.scenery.length !== (w.generatorVersion === 4 ? 36 : RULES.sceneryCount)
-    )
-      fail();
+    if (new Set(w.monuments.map((o) => o.type)).size !== RULES.monumentCount) fail();
+    if (!Array.isArray(w.scenery) || w.scenery.length !== RULES.sceneryCount) fail();
     const scenerySeen = new Set(),
-      counts = new Map(
-        (w.generatorVersion === 4 ? SCENERY_TYPES.slice(0, 6) : SCENERY_TYPES).map((type) => [
-          type,
-          0,
-        ]),
-      );
-    for (const object of w.scenery) {
+      counts = new Map(SCENERY_TYPES.map((type) => [type, 0]));
+    for (const o of w.scenery) {
       if (
-        !coordinate(object) ||
-        !counts.has(object.type) ||
-        !orientation(object.orientation) ||
-        scenerySeen.has(key(object.x, object.y)) ||
-        occupied.has(key(object.x, object.y)) ||
-        (object.x === 0 && object.y === 0) ||
-        m.get(key(object.x, object.y)).landmark !== null
+        !coordinate(o) ||
+        !counts.has(o.type) ||
+        !Number.isInteger(o.orientation) ||
+        o.orientation < 0 ||
+        o.orientation > 3 ||
+        scenerySeen.has(key(o.x, o.y)) ||
+        occupied.has(key(o.x, o.y)) ||
+        m.get(key(o.x, o.y)).landmark ||
+        (o.x === 0 && o.y === 0)
       )
         fail();
-      addId(object.id);
-      scenerySeen.add(key(object.x, object.y));
-      counts.set(object.type, counts.get(object.type) + 1);
+      addId(o.id);
+      scenerySeen.add(key(o.x, o.y));
+      counts.set(o.type, counts.get(o.type) + 1);
     }
+    if ([...counts].some(([type, n]) => n !== RULES.sceneryCounts[type])) fail();
     if (
-      [...counts].some(
-        ([type, n]) => n !== (w.generatorVersion === 4 ? 6 : RULES.sceneryCounts[type]),
-      )
+      !w.memo ||
+      !['waiting', 'placed', 'collected'].includes(w.memo.status) ||
+      !w.monuments.some((o) => o.id === w.memo.monumentId)
     )
       fail();
-    {
-      if (
-        !w.memo ||
-        Array.isArray(w.memo) ||
-        !['waiting', 'placed', 'collected'].includes(w.memo.status) ||
-        !w.monuments.some((monument) => monument.id === w.memo.monumentId)
-      )
-        fail();
-      if (w.memo.status === 'waiting') {
-        if (w.memo.clue !== null) fail();
-      } else if (
-        !coordinate(w.memo.clue) ||
-        m.get(key(w.memo.clue.x, w.memo.clue.y)).visibility !== 'opened' ||
-        !ordinaryMemoTile(w, m.get(key(w.memo.clue.x, w.memo.clue.y))) ||
-        !towers.some((t) => t.towerOrder === 0 && t.effectApplied)
-      )
-        fail();
-    }
-    {
-      if (
-        w.destination !== null &&
-        (!coordinate(w.destination) ||
-          m.get(key(w.destination.x, w.destination.y))?.landmark !== 'tower' ||
-          (w.generatorVersion === 5 &&
-            m.get(key(w.destination.x, w.destination.y)).towerOrder !== 0) ||
-          m.get(key(w.destination.x, w.destination.y)).effectApplied)
-      )
-        fail();
-      if (w.destination === null && towers.some((t) => t.towerOrder === 0 && !t.effectApplied))
-        fail();
-    }
-    for (const k of ['wood', 'rock', 'metal'])
-      if (!finite(w.resources?.[k]) || w.resources[k] < 0) fail();
-    for (const k of ['inn', 'well', 'workshop'])
-      if (
-        !Number.isInteger(w.facilities[k]) ||
-        w.facilities[k] < 0 ||
-        w.facilities[k] > RULES.facilities[k].maxLevel
-      )
-        fail();
-    // Saved terrain/costs are authoritative; validation never invokes the generator.
+    if (w.memo.status === 'waiting') {
+      if (w.memo.clue !== null) fail();
+    } else if (
+      !coordinate(w.memo.clue) ||
+      m.get(key(w.memo.clue.x, w.memo.clue.y)).visibility !== 'opened' ||
+      !ordinaryMemoTile(w, m.get(key(w.memo.clue.x, w.memo.clue.y)))
+    )
+      fail();
     return w;
   }
   // Published IDs and their original texts stay fixed; revisions receive new IDs.
@@ -904,8 +683,28 @@
     'form-1':
       '箱の内側に所有者の名前を書く欄がある。\n記入すると、外にいる者のほうが内容物となる。',
   });
+  const memoHints = Object.freeze({
+    'direction-1': '{direction}に、{name}がある。',
+    'direction-2': '{direction}のほうへ進むと、{name}に行き当たる。',
+    'direction-3': '{name}は、この紙片から{direction}にある。',
+  });
+  function chooseMemoHint(w) {
+    const previous = w.memoHistory.at(-1)?.hintId;
+    const ids = Object.keys(memoHints).filter((id) => id !== previous);
+    return ids[hash(w.seed, w.memo.clue.x, w.memo.clue.y, 0x52617341) % ids.length];
+  }
+  function memoHint(w, memo = w.memo) {
+    const target = w.monuments.find((o) => o.id === memo.monumentId);
+    const dx = target.x - memo.clue.x,
+      dy = target.y - memo.clue.y;
+    const direction = (dy < 0 ? '北' : dy > 0 ? '南' : '') + (dx < 0 ? '西' : dx > 0 ? '東' : '');
+    return memoHints[memo.hintId]
+      .replace('{direction}', direction || 'すぐ近く')
+      .replace('{name}', MONUMENTS[target.type]);
+  }
   function chooseMemoAside(w) {
-    const ids = Object.keys(memoAsides),
+    const used = new Set(w.memoHistory.map((m) => m.asideId));
+    const ids = Object.keys(memoAsides).filter((id) => !used.has(id)),
       p = w.memo.clue,
       monument = w.monuments.find((m) => m.id === w.memo.monumentId);
     return ids[
@@ -943,7 +742,8 @@
         !Number.isInteger(memo.clue.y) ||
         !ordinaryMemoTile(w, clue) ||
         clues.has(key(clue.x, clue.y)) ||
-        !Object.hasOwn(memoAsides, memo.asideId)
+        !Object.hasOwn(memoAsides, memo.asideId) ||
+        !Object.hasOwn(memoHints, memo.hintId)
       )
         throw Error('Invalid memo history');
       targets.add(target.id);
@@ -955,31 +755,35 @@
         : typeof w.memo.asideId !== 'string' || !Object.hasOwn(memoAsides, w.memo.asideId)
     )
       throw Error('Invalid memo aside');
+    const issued = [...w.memoHistory, w.memo].filter((memo) => memo.status !== 'waiting');
+    if (
+      [...w.memoHistory, w.memo].some((memo) =>
+        memo.status === 'waiting' ? memo.hintId !== null : !Object.hasOwn(memoHints, memo.hintId),
+      ) ||
+      issued.some((memo, i) => i > 0 && memo.hintId === issued[i - 1].hintId) ||
+      new Set(issued.map((memo) => memo.asideId)).size !== issued.length ||
+      (w.completionDismissed && !isComplete(w))
+    )
+      throw Error('Invalid memo or completion progression');
     return w;
   }
   globalThis.TapWorld = {
     RULES,
     MONUMENTS,
-    resourceTileCounts,
     create,
     generateTile,
     index,
     eligible,
-    settle,
     develop,
     collectMemo,
     monumentStatus,
     destinations,
+    isComplete,
     validate,
-    maximumPoints,
-    recoveryMultiplier,
-    recoveryRate,
-    developmentPower,
-    productionRates,
-    facilityCost,
-    upgrade,
     protectedMonumentCoordinates,
     memoAsides,
+    memoHints,
+    memoHint,
     memoAside,
   };
 })();

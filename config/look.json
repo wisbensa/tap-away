@@ -330,53 +330,6 @@
         ]
       ]
     },
-    "city": {
-      "bodyColor": "#e0cd9d",
-      "roofColor": "#76523c",
-      "doorColor": "#354d3a",
-      "body": [
-        {
-          "x": -17,
-          "y": 0
-        },
-        {
-          "x": 17,
-          "y": 0
-        },
-        {
-          "x": 17,
-          "y": -29
-        },
-        {
-          "x": -17,
-          "y": -29
-        }
-      ],
-      "roof": [
-        {
-          "x": -21,
-          "y": -29
-        },
-        {
-          "x": -15,
-          "y": -41
-        },
-        {
-          "x": 15,
-          "y": -41
-        },
-        {
-          "x": 21,
-          "y": -29
-        }
-      ]
-    },
-    "stone_arch": {
-      "baseColor": "#a3a592",
-      "faceColor": "#d3ccaf",
-      "shadeColor": "#969783",
-      "lineColor": "#666c59"
-    },
     "front_statue": {
       "bodyColor": "#b9b49a",
       "shadeColor": "#969984",
@@ -2595,15 +2548,6 @@
         }
       ]
     },
-    "spring": {
-      "bodyColor": "#d3c498",
-      "waterColor": "#649caa",
-      "detailColor": "#c4e4df"
-    },
-    "ruins": {
-      "bodyColor": "#d3c498",
-      "detailColor": "#3d513b"
-    },
     "seated_statue": {
       "bodyColor": "#b9b49a",
       "shadeColor": "#969984",
@@ -3091,11 +3035,15 @@
           }
         ]
       ]
+    },
+    "landmarkBase": {
+      "baseColor": "#a3a592",
+      "faceColor": "#d3ccaf",
+      "shadeColor": "#969783",
+      "lineColor": "#666c59"
     }
   },
   "lines": {
-    "road": "#c7b181",
-    "roadEdge": "#766d5044",
     "hidden": "#eeeade16",
     "edge": "#4f633a44",
     "eligible": "#75856b",
@@ -3118,5 +3066,62 @@
     "noticeSurfaceColor": "#263d2e",
     "mapColor": "#ddd6b4"
   },
-  "assets": {}
+  "assets": {
+    "doll_keeper": {
+      "path": "assets/landmarks-v2/02-doll-keeper.png",
+      "width": 180,
+      "height": 180,
+      "anchorX": 90,
+      "anchorY": 174,
+      "visualHeight": 174
+    },
+    "ball_chasers": {
+      "path": "assets/landmarks-v2/03-ball-chasers.png",
+      "width": 180,
+      "height": 180,
+      "anchorX": 90,
+      "anchorY": 174,
+      "visualHeight": 174
+    },
+    "couple_under_trees": {
+      "path": "assets/landmarks-v2/05-couple-under-trees.png",
+      "width": 180,
+      "height": 180,
+      "anchorX": 90,
+      "anchorY": 174,
+      "visualHeight": 174
+    },
+    "child_on_rock": {
+      "path": "assets/landmarks-v2/06-child-on-rock.png",
+      "width": 180,
+      "height": 180,
+      "anchorX": 90,
+      "anchorY": 174,
+      "visualHeight": 174
+    },
+    "guard_in_wooden_frame": {
+      "path": "assets/landmarks-v2/07-guard-in-wooden-frame.png",
+      "width": 180,
+      "height": 180,
+      "anchorX": 90,
+      "anchorY": 174,
+      "visualHeight": 174
+    },
+    "piper_and_birds": {
+      "path": "assets/landmarks-v2/08-piper-and-birds.png",
+      "width": 180,
+      "height": 180,
+      "anchorX": 90,
+      "anchorY": 174,
+      "visualHeight": 174
+    },
+    "elder_with_black_dog": {
+      "path": "assets/landmarks-v2/09-elder-with-black-dog.png",
+      "width": 180,
+      "height": 180,
+      "anchorX": 90,
+      "anchorY": 174,
+      "visualHeight": 174
+    }
+  }
 }

@@ -1,0 +1,135 @@
+[
+  {
+    "file": "02-doll-keeper.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      0,
+      20,
+      1230,
+      1254
+    ],
+    "main_bounds": [
+      161,
+      41,
+      1096,
+      1216
+    ]
+  },
+  {
+    "file": "03-ball-chasers.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      0,
+      17,
+      1168,
+      1254
+    ],
+    "main_bounds": [
+      129,
+      24,
+      1142,
+      1230
+    ]
+  },
+  {
+    "file": "05-couple-under-trees.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      0,
+      0,
+      1236,
+      1236
+    ],
+    "main_bounds": [
+      188,
+      35,
+      1114,
+      1215
+    ]
+  },
+  {
+    "file": "06-child-on-rock.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      0,
+      21,
+      1214,
+      1228
+    ],
+    "main_bounds": [
+      110,
+      81,
+      1146,
+      1206
+    ]
+  },
+  {
+    "file": "07-guard-in-wooden-frame.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      0,
+      19,
+      1230,
+      1225
+    ],
+    "main_bounds": [
+      253,
+      52,
+      1010,
+      1222
+    ]
+  },
+  {
+    "file": "08-piper-and-birds.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      0,
+      19,
+      1236,
+      1254
+    ],
+    "main_bounds": [
+      234,
+      25,
+      1069,
+      1234
+    ]
+  },
+  {
+    "file": "09-elder-with-black-dog.png",
+    "size": [
+      1254,
+      1254
+    ],
+    "alpha_bounds": [
+      0,
+      8,
+      1240,
+      1238
+    ],
+    "main_bounds": [
+      144,
+      79,
+      1157,
+      1207
+    ]
+  }
+]

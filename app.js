@@ -4,13 +4,9 @@
   const CONFIG = {
     developmentBuild: true,
     tileWidth: 76,
-    tileHeight: 48,
-    tileSkew: 16,
-    viewSkews: { original: 0, depth: 16, pitch: 0, diagonal: 0 },
-    viewHeights: { original: 72, depth: 48, pitch: 48, diagonal: 48 },
-    viewYaws: { original: 0, depth: 0, pitch: 0, diagonal: Math.PI / 4 },
+    tileHeight: 72,
+    tileSkew: 0,
     viewYaw: 0,
-    archTrial: 'full',
     sceneryReactionMs: 650,
     sceneryReactionCooldownMs: 1200,
     sceneryReactionAngle: 0.035,
@@ -36,7 +32,6 @@
     openedPixels: 1.5,
     openedMs: 180,
     openedBrightening: 8,
-    emptyNoticeCooldownMs: 7000,
     monumentStepMs: 100,
     outlineWidth: 2,
     minOutlinePixels: 2,
@@ -73,17 +68,12 @@
     openedSinkMs: 40,
     openedReboundMs: 100,
     openedReboundStrength: 0.08,
-    roadWidth: 7,
-    roadBorderWidth: 2,
-    roadPreviewOpacity: 0.3,
     smallEventCooldownMs: 18000,
     smallEventChance: 0.12,
     smallEventMs: 1500,
     markerMargin: 36,
     markerRadius: 28,
     markerSpacing: 60,
-    cityVillageFacilityLevels: 1,
-    cityTownFacilityLevels: 6,
   };
   const canvas = document.querySelector('#map'),
     ctx = canvas.getContext('2d');
@@ -116,12 +106,10 @@
     needsInitialSave = false,
     legacyReset = false,
     suspended = false,
-    resumeGains = null,
     emptyNoticeAt = -Infinity;
   let toastAt = -Infinity;
   const memoPanel = document.querySelector('#memo-panel'),
     memoReview = document.querySelector('#memo-review');
-  const townPanel = document.querySelector('#town-panel');
   const settingsPanel = document.querySelector('#settings-panel');
   function closeSettings() {
     settingsPanel.hidden = true;
@@ -143,194 +131,10 @@
     helpDialog.showModal();
   });
   document.querySelector('#help-close').addEventListener('click', () => helpDialog.close());
-  document.querySelector('#view-trial').addEventListener('change', (event) => {
-    const next = CONFIG.viewHeights[event.target.value];
-    if (!next) return;
-    // Keep the ground coordinate at the viewport center fixed while comparing.
-    let focusX = 0,
-      focusY = 0;
-    const cosine = Math.cos(CONFIG.viewYaw),
-      sine = Math.sin(CONFIG.viewYaw);
-    for (let i = 0; i < 8; i++) {
-      const rotatedY =
-        ((height * 0.02 - camera.y) / camera.zoom + heightAt(focusX, focusY) * CONFIG.heightScale) /
-        CONFIG.tileHeight;
-      const rotatedX = (-camera.x / camera.zoom - rotatedY * CONFIG.tileSkew) / CONFIG.tileWidth;
-      focusX = rotatedX * cosine + rotatedY * sine;
-      focusY = -rotatedX * sine + rotatedY * cosine;
-    }
-    const before = groundProjection(focusX, focusY);
-    CONFIG.tileHeight = next;
-    CONFIG.tileSkew = CONFIG.viewSkews[event.target.value];
-    CONFIG.viewYaw = CONFIG.viewYaws[event.target.value];
-    const after = groundProjection(focusX, focusY);
-    camera.x += (before.x - after.x) * camera.zoom;
-    camera.y += (before.y - after.y) * camera.zoom;
-    sortTiles();
-    held = null;
-    pointers.clear();
-    gesture = null;
-    requestDraw();
-  });
-  document.querySelector('#arch-trial').addEventListener('change', (event) => {
-    CONFIG.archTrial = event.target.value === 'original' ? 'original' : 'full';
-    requestDraw();
-  });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeSettings();
   });
   document.querySelector('#development-tools').hidden = !CONFIG.developmentBuild;
-  let highlightTown = false;
-  const resourceLabels = { wood: '木', rock: '岩', metal: '金属' };
-  function affordable(id) {
-    const cost = TapWorld.facilityCost(world, id);
-    return !!cost && Object.keys(cost).every((k) => world.resources[k] >= cost[k]);
-  }
-  function learn() {
-    if (!started || saveBlocked || suspended) return;
-    const learning = world.learning,
-      messages = [];
-    const kinds = ['tree', 'rock', 'mine'].filter(
-      (kind) =>
-        !learning.resources.includes(kind) &&
-        world.tiles.some((t) => t.kind === kind && t.visibility === 'opened'),
-    );
-    if (kinds.length) {
-      const first = learning.resources.length === 0;
-      const labels = { tree: ['森', '木'], rock: ['岩場', '岩'], mine: ['鉱山', '金属'] };
-      for (const kind of kinds) {
-        learning.resources.push(kind);
-        messages.push(
-          labels[kind][0] + 'を開拓。ここから' + labels[kind][1] + 'が少しずつ生産される。',
-        );
-      }
-      if (first) messages.push('ゲームを閉じている間も生産する（最大12時間分）。');
-    }
-    if (learning.town === 'waiting') {
-      if (Object.values(world.facilities).some((level) => level > 0)) learning.town = 'done';
-      else if (Object.keys(facilityNames).some(affordable)) {
-        learning.town = townPanel.hidden ? 'guiding' : 'done';
-        highlightTown = !townPanel.hidden;
-        messages.push(
-          townPanel.hidden
-            ? '街で施設を建設・強化できそうだ。街をタップしてみよう。'
-            : '建設できる施設を選んで、街を育てられます。',
-        );
-      }
-      if (learning.town !== 'waiting') queueSave();
-    }
-    if (messages.length) {
-      toast(messages.join('\n'));
-      queueSave();
-      requestDraw();
-    }
-  }
-  const facilityNames = { inn: '宿屋', well: '井戸', workshop: '工房' };
-  function facilityEffect(id, level) {
-    if (id === 'inn') return '探索上限 ' + TapWorld.maximumPoints(world, level);
-    if (id === 'well') return '回復速度 ×' + TapWorld.recoveryMultiplier(world, level).toFixed(1);
-    return '開拓力 ' + TapWorld.developmentPower(world, level);
-  }
-  function updateTown() {
-    const rates = TapWorld.productionRates(world);
-    const counts = TapWorld.resourceTileCounts(world);
-    document.querySelector('#resource-tiles').textContent =
-      '開拓済み　森 ' +
-      counts.tree +
-      'マス　岩場 ' +
-      counts.rock +
-      'マス　鉱山 ' +
-      counts.mine +
-      'マス';
-    document.querySelector('#production').textContent = Object.keys(resourceLabels)
-      .map((k) => resourceLabels[k] + ' +' + rates[k] + '/h')
-      .join('　');
-    document.querySelector('#town-resources').textContent =
-      document.querySelector('#resources').textContent;
-    const total = Object.values(world.facilities).reduce((a, b) => a + b, 0);
-    document.querySelector('#town-state').textContent =
-      total >= CONFIG.cityTownFacilityLevels
-        ? '育った街'
-        : total >= CONFIG.cityVillageFacilityLevels
-          ? '小さな村'
-          : '小さな街';
-    for (const id of Object.keys(facilityNames)) {
-      const level = world.facilities[id],
-        cost = TapWorld.facilityCost(world, id);
-      document.querySelector('#' + id + '-level').textContent =
-        facilityNames[id] + (level ? ' Lv' + level : '（未建設）');
-      document.querySelector('#' + id + '-effect').textContent =
-        facilityEffect(id, level) + (cost ? ' → ' + facilityEffect(id, level + 1) : '（上限）');
-      document.querySelector('#' + id + '-cost').textContent = cost
-        ? '必要：木 ' + cost.wood + '　岩 ' + cost.rock + '　金属 ' + cost.metal
-        : '最大レベルです';
-      const button = document.querySelector('#upgrade-' + id);
-      const missing = cost ? Object.keys(cost).filter((k) => world.resources[k] < cost[k]) : [];
-      const card = button.closest('.facility');
-      card.classList.toggle('guided', highlightTown && affordable(id));
-      if (missing.length)
-        document.querySelector('#' + id + '-cost').textContent +=
-          '（不足：' +
-          missing
-            .map((k) => resourceLabels[k] + ' ' + Math.ceil(cost[k] - world.resources[k]))
-            .join('・') +
-          '）';
-      button.textContent = cost
-        ? facilityNames[id] +
-          (level === 0 ? 'を建てる' : 'を強化する') +
-          ' → Lv' +
-          (level + 1) +
-          (missing.length ? '' : level === 0 ? '（建設できる）' : '（強化できる）')
-        : '上限到達';
-      button.hidden = !cost;
-      button.disabled =
-        !cost || Object.keys(cost).some((k) => world.resources[k] < cost[k]) || saveBlocked;
-    }
-  }
-  function openTown() {
-    closeMemo();
-    townPanel.hidden = false;
-    closeSettings();
-    if (world.learning.town === 'guiding') {
-      world.learning.town = 'done';
-      highlightTown = true;
-      queueSave();
-    }
-    updateHud();
-    updateTown();
-    requestDraw();
-  }
-  document.querySelector('#town-close').addEventListener('click', () => {
-    townPanel.hidden = true;
-    highlightTown = false;
-    requestDraw();
-  });
-  for (const id of Object.keys(facilityNames))
-    document.querySelector('#upgrade-' + id).addEventListener('click', () => {
-      if (saveBlocked || suspended) return;
-      const before = facilityEffect(id, world.facilities[id]),
-        powerBefore = TapWorld.developmentPower(world),
-        levelBefore = world.facilities[id];
-      const result = TapWorld.upgrade(world, id);
-      if (result === 'upgraded') {
-        const first = !world.learning.facilityNotified;
-        world.learning.facilityNotified = true;
-        world.learning.town = 'done';
-        highlightTown = false;
-        let message = facilityNames[id] + (levelBefore === 0 ? 'を建設した。' : 'を強化した。');
-        if (id === 'workshop')
-          message += '開拓力 ' + powerBefore + ' → ' + TapWorld.developmentPower(world) + '。';
-        else if (first)
-          message +=
-            before +
-            ' → ' +
-            facilityEffect(id, world.facilities[id]) +
-            (id === 'inn' ? '。探索ポイントが全回復。' : '。');
-        if (save()) toast(message);
-      }
-      updateHud();
-      requestDraw();
-    });
   const backupDialog = document.querySelector('#backup-dialog'),
     backupText = document.querySelector('#backup-json');
   document.querySelector('#backup').addEventListener('click', () => {
@@ -351,7 +155,6 @@
   function importSave(text) {
     try {
       const candidate = TapWorld.validate(JSON.parse(text));
-      TapWorld.settle(candidate, Date.now(), true);
       candidate.savedAt = Date.now();
       // Commit first, then reload through the normal current-version loader.
       localStorage.setItem(SAVE_KEY, JSON.stringify(candidate));
@@ -411,7 +214,6 @@
           ? TapWorld.create(Date.now(), seed)
           : TapWorld.validate(previous);
       needsInitialSave = raw === null || legacyReset;
-      if (!needsInitialSave) resumeGains = TapWorld.settle(loaded, Date.now(), true);
       return loaded;
     } catch {
       saveBlocked = true;
@@ -424,7 +226,6 @@
   function save() {
     clearTimeout(saveTimer);
     if (saveBlocked) return false;
-    if (!suspended) TapWorld.settle(world);
     const savedAt = Date.now();
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({ ...world, savedAt }));
@@ -440,36 +241,38 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(save, 500);
   }
+  const completionPanel = document.querySelector('#completion-panel');
   function updateHud() {
-    learn();
-    document.querySelector('#power').textContent = '開拓力 ' + TapWorld.developmentPower(world);
-    document.querySelector('#points').textContent =
-      '探索 ' + Math.floor(world.points) + ' / ' + TapWorld.maximumPoints(world);
-    document.querySelector('#resources').textContent =
-      '木 ' +
-      Math.floor(world.resources.wood) +
-      '　岩 ' +
-      Math.floor(world.resources.rock) +
-      '　金属 ' +
-      Math.floor(world.resources.metal);
     memoReview.hidden = !started || !latestCollectedMemo();
-    if (!townPanel.hidden) updateTown();
+    const complete = TapWorld.isComplete(world);
+    completionPanel.hidden = !started || !complete || world.completionDismissed;
+    document.querySelector('#next-map-settings').hidden = !complete;
+    document.querySelector('#memo-select').hidden = !latestCollectedMemo();
   }
-  function showResume(gained) {
-    if (!gained) return;
-    const labels = { points: '探索', wood: '木', rock: '岩', metal: '金属' };
-    const entries = Object.keys(labels).filter((k) => gained[k] > 0);
-    if (entries.length)
-      toast(
-        'おかえりなさい\n' +
-          entries
-            .map(
-              (k) =>
-                labels[k] + ' +' + (gained[k] >= 1 ? Math.floor(gained[k]) : gained[k].toFixed(2)),
-            )
-            .join('　'),
-      );
+  document.querySelector('#continue-map').addEventListener('click', () => {
+    world.completionDismissed = true;
+    updateHud();
+    save();
+    requestDraw();
+  });
+  function nextMap() {
+    if (!TapWorld.isComplete(world) || saveBlocked) return;
+    // Commit the complete replacement before reload. Failure keeps the existing map and save.
+    try {
+      let candidate = TapWorld.create();
+      if (candidate.seed === world.seed)
+        candidate = TapWorld.create(Date.now(), (world.seed + 1) >>> 0);
+      localStorage.setItem(SAVE_KEY, JSON.stringify(candidate));
+    } catch {
+      toast('次の地図を保存できませんでした。現在の地図は保持しています。');
+      return;
+    }
+    clearTimeout(saveTimer);
+    saveBlocked = true;
+    location.reload();
   }
+  document.querySelector('#next-map').addEventListener('click', nextMap);
+  document.querySelector('#next-map-settings').addEventListener('click', nextMap);
   document.querySelector('#start').textContent = world.introduced ? 'つづきから' : 'はじめる';
   function startGame() {
     started = true;
@@ -480,13 +283,8 @@
       world.introduced = true;
       toast(
         (legacyReset ? '開発版の更新により、新しい世界を開始しました。' : '') +
-          '隣の土地をポチポチ開拓。街をタップすると施設を育てられます。',
+          '隣の土地をポチポチ開拓。土地に残る小さな手掛かりを探しましょう。',
       );
-      queueSave();
-    }
-    if (world.introduced && resumeGains) {
-      showResume(resumeGains);
-      resumeGains = null;
       queueSave();
     }
     updateHud();
@@ -494,11 +292,7 @@
   }
   document.querySelector('#start').addEventListener('click', startGame);
   function memoHint(monument, memo = world.memo) {
-    const clue = memo.clue,
-      dx = monument.x - clue.x,
-      dy = monument.y - clue.y;
-    const direction = (dy < 0 ? '北' : dy > 0 ? '南' : '') + (dx < 0 ? '西' : dx > 0 ? '東' : '');
-    return (direction || 'この近く') + 'に、' + TapWorld.MONUMENTS[monument.type] + 'がある。';
+    return TapWorld.memoHint(world, memo);
   }
   function closeMemo() {
     clearTimeout(memoTimer);
@@ -508,9 +302,8 @@
   function latestCollectedMemo() {
     return world.memo.status === 'collected' ? world.memo : world.memoHistory.at(-1);
   }
-  function showMemo(alreadyReached = false) {
-    townPanel.hidden = true;
-    const memo = latestCollectedMemo();
+  function showMemo(alreadyReached = false, selected = null) {
+    const memo = selected || latestCollectedMemo();
     const monument = memo && world.monuments.find((m) => m.id === memo.monumentId);
     if (!memo || !monument) return;
     document.querySelector('#memo-hint').textContent = memoHint(monument, memo);
@@ -524,21 +317,35 @@
       skin = TapSkin.current;
     pen.clearRect(0, 0, picture.width, picture.height);
     picture.setAttribute('aria-label', TapWorld.MONUMENTS[monument.type] + 'の絵');
-    if (monument.type === 'stone_arch') drawArch(pen, 90, 86, 1, true);
-    else
-      drawLandmarkStructure(monument, 0, {
-        pen,
-        zoom: 0.42,
-        at: (x, y, z = 0) => ({
-          x: 90 + (x - 0.5) * 23 + (y - 0.5) * 8,
-          y: 85 + (y - 0.5) * 7 - z * 0.42,
-        }),
-      });
+    drawLandmarkStructure(monument, 0, {
+      pen,
+      zoom: 0.42,
+      at: (x, y, z = 0) => ({
+        x: 90 + (x - 1) * 23 + (y - 1.5) * 8,
+        y: 90 + (y - 1.5) * 7 - z * 0.42,
+      }),
+    });
+    memoSelect.replaceChildren();
+    for (const item of [...world.memoHistory, world.memo].filter((m) => m.status === 'collected')) {
+      const option = document.createElement('option');
+      option.value = item.monumentId;
+      option.textContent =
+        TapWorld.MONUMENTS[world.monuments.find((o) => o.id === item.monumentId).type];
+      memoSelect.append(option);
+    }
+    memoSelect.value = memo.monumentId;
     memoPanel.hidden = false;
     clearTimeout(memoTimer);
     memoTimer = setTimeout(closeMemo, CONFIG.memoDisplayMs);
     requestDraw();
   }
+  const memoSelect = document.querySelector('#memo-select');
+  memoSelect.addEventListener('change', () => {
+    const memo = [...world.memoHistory, world.memo].find(
+      (m) => m.monumentId === memoSelect.value && m.status === 'collected',
+    );
+    if (memo) showMemo(false, memo);
+  });
   document.querySelector('#memo-close').addEventListener('click', closeMemo);
   memoReview.addEventListener('click', () => showMemo());
   const devButton = document.querySelector('#dev-reset');
@@ -589,45 +396,12 @@
   }
   document.querySelector('#notes').addEventListener('click', openReleaseNotes);
   document.querySelector('#close-notes').addEventListener('click', () => notes.close());
-  const skinDialog = document.querySelector('#skin-dialog'),
-    skinChoice = document.querySelector('#skin-choice');
-  for (const skin of TapSkin.available) {
-    const option = document.createElement('option');
-    option.value = skin.id;
-    option.textContent = skin.label;
-    skinChoice.append(option);
-  }
-  function syncSkinChoice() {
-    skinChoice.value = TapSkin.selection() || '';
-  }
-  function switchSkin(id) {
-    if (!save()) {
-      syncSkinChoice();
-      if (saveBlocked) toast('進行を保存できないため、スキンを切り替えられません。');
-      return;
-    }
-    try {
-      TapSkin.select(id);
-      location.reload();
-    } catch {
-      syncSkinChoice();
-      toast('スキンの設定を保存できませんでした。');
-    }
-  }
-  document.querySelector('#dev-skin').addEventListener('click', () => {
-    syncSkinChoice();
-    skinDialog.showModal();
-  });
-  document.querySelector('#close-skin').addEventListener('click', () => skinDialog.close());
-  skinChoice.addEventListener('change', () => switchSkin(skinChoice.value || null));
-  document.querySelector('#skin-default').addEventListener('click', () => switchSkin(null));
   const skinReady = TapSkin.load().then(() => {
-    syncSkinChoice();
+    if (!memoPanel.hidden) showMemo();
     requestDraw();
   });
   setInterval(() => {
     if (!document.hidden && !suspended && started) {
-      TapWorld.settle(world);
       updateHud();
       tickAtmosphere(performance.now());
     }
@@ -1012,38 +786,12 @@
   function visibleBounds(tile, pts, base) {
     const skin = TapSkin.current,
       points = pts.slice();
-    let shapes = [],
-      id = null;
-    const city = tile.x === 0 && tile.y === 0,
-      destination = world.destination?.x === tile.x && world.destination?.y === tile.y;
-    if (city) {
-      shapes = [skin.objects.city.body, skin.objects.city.roof];
-      id = 'city';
-    } else if (tile.landmark === 'tower') {
-      shapes =
-        tile.visibility === 'opened' || destination
-          ? [skin.objects.tower.body]
-          : [
-              [
-                { x: -7, y: 0 },
-                { x: 7, y: 0 },
-                { x: 5, y: -38 },
-                { x: -5, y: -38 },
-              ],
-            ];
-      if (tile.visibility === 'opened') id = 'tower';
-    } else if (tile.landmark === 'spring' || tile.landmark === 'ruins') {
-      if (tile.visibility !== 'hidden')
-        shapes = [
-          [
-            { x: -22, y: 5 },
-            { x: 22, y: -38 },
-          ],
-        ];
-      if (tile.visibility === 'opened') id = tile.landmark;
-    } else if (tile.visibility !== 'hidden') {
-      shapes = objectShapes(tile);
-      id = tile.kind;
+    let shapes = [];
+    let id = tile.visibility === 'opened' ? tile.kind : null;
+    if (tile.visibility !== 'hidden') {
+      if (tile.landmark === 'tower') shapes = [skin.objects.tower.body];
+      else if (tile.kind === 'tree') shapes = skin.objects.tree.shapes;
+      else if (tile.kind === 'rock' || tile.kind === 'mine') shapes = objectShapes(tile);
     }
     for (const shape of shapes)
       for (const p of shape)
@@ -1071,9 +819,9 @@
         { x: archBase.x + 110 * camera.zoom, y: archBase.y },
       );
       const monument = monumentsByCoordinate.get(tile.x + ',' + tile.y),
-        bitmap = skin.assets.stone_arch;
+        bitmap = skin.assets[monument.type];
       if (bitmap?.image) {
-        const center = surface(monument.x + 0.5, monument.y + 0.5, performance.now());
+        const center = surface(monument.x + 1, monument.y + 1.5, performance.now());
         points.push(
           {
             x: center.x - bitmap.anchorX * camera.zoom,
@@ -1122,74 +870,6 @@
     }
     return null;
   }
-  function roadSegments(tile, now) {
-    if (!tile.road) return [];
-    const state = displayState(tile, now);
-    // Delayed reveals obey the displayed state, including tower visibility waves.
-    if (
-      state.visibility === 'hidden' ||
-      (state.visibility === 'preview' && towerFade(tile, now) === 0)
-    )
-      return [];
-    const neighbors = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ].map(([dx, dy]) => ({
-      dx,
-      dy,
-      tile: tilesByCoordinate.get(tile.x + dx + ',' + (tile.y + dy)),
-    }));
-    const opened = (neighbor) =>
-      neighbor.tile?.road && displayState(neighbor.tile, now).visibility === 'opened';
-    return neighbors.filter(
-      (neighbor) =>
-        neighbor.tile?.road &&
-        (opened(neighbor) ||
-          (displayState(neighbor.tile, now).visibility === 'preview' &&
-            towerFade(neighbor.tile, now) > 0)),
-    );
-  }
-  function drawRoad(tile, now) {
-    const segments = roadSegments(tile, now);
-    const state = displayState(tile, now);
-    if (
-      !tile.road ||
-      state.visibility === 'hidden' ||
-      (state.visibility === 'preview' && towerFade(tile, now) === 0)
-    )
-      return;
-    const center = surface(tile.x + 0.5, tile.y + 0.5, now, tile);
-    ctx.save();
-    const bounds = corners(tile, now);
-    ctx.beginPath();
-    bounds.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-    ctx.closePath();
-    ctx.clip();
-    ctx.globalAlpha = state.visibility === 'opened' ? 1 : CONFIG.roadPreviewOpacity;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (const [color, width] of [
-      [TapSkin.current.lines.roadEdge, CONFIG.roadWidth + CONFIG.roadBorderWidth * 2],
-      [TapSkin.current.lines.road, CONFIG.roadWidth],
-    ]) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width * camera.zoom;
-      ctx.beginPath();
-      if (!segments.length) {
-        ctx.moveTo(center.x, center.y);
-        ctx.lineTo(center.x + 0.1 * camera.zoom, center.y);
-      }
-      for (const { dx, dy } of segments) {
-        const edge = surface(tile.x + 0.5 + dx * 0.5, tile.y + 0.5 + dy * 0.5, now, tile);
-        ctx.moveTo(center.x, center.y);
-        ctx.lineTo(edge.x, edge.y);
-      }
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
   function draw(now) {
     frame = 0;
     for (const [id, at] of sceneryReactions)
@@ -1213,6 +893,19 @@
         openings.delete(key);
     const skin = TapSkin.current;
     ctx.clearRect(0, 0, width, height);
+    const background = ctx.createRadialGradient(
+      width * 0.5,
+      height * 0.48,
+      0,
+      width * 0.5,
+      height * 0.48,
+      Math.max(width, height) * 0.8,
+    );
+    background.addColorStop(0, '#777a69');
+    background.addColorStop(1, '#333b36');
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, width, height);
+
     hitAreas.length = 0;
     const center = project(0, 0);
     ctx.save();
@@ -1240,7 +933,7 @@
           : display.visibility === 'preview' && fade === 0
             ? 'hidden'
             : display.visibility;
-      if (y === world.bounds.maxY) {
+      if (!worldIndex.has(x + ',' + (y + 1))) {
         const edge = [pts[2], pts[3]];
         const sideDepth = 17 * camera.zoom;
         const side = [
@@ -1258,7 +951,6 @@
         visibility === 'hidden' ? skin.lines.hidden : skin.lines.edge,
       );
       remember(pts);
-      drawRoad(tile, now);
       if (visibility === 'opened' && monumentsByCoordinate.has(x + ',' + y)) {
         drawMonumentPart(tile, base, now);
         continue;
@@ -1273,131 +965,29 @@
           : 1;
         if (drawScenery(tile, base, alpha)) continue;
       }
-      if (tile.landmark === 'spring' || tile.landmark === 'ruins') {
-        if (visibility === 'hidden') continue;
-        if (visibility === 'opened' && drawAsset(tile.landmark, base)) continue;
+      if (tile.landmark === 'tower' && visibility !== 'hidden') {
+        if (visibility === 'opened' && drawAsset('tower', base)) continue;
         ctx.save();
         ctx.translate(base.x, base.y);
         ctx.scale(camera.zoom, camera.zoom);
-        if (visibility !== 'opened') {
-          // Anonymous outline: zoom does not reveal the type or its effect.
-          ctx.globalAlpha = 0.25;
+        const object = skin.objects.tower;
+        ctx.globalAlpha = visibility === 'opened' ? 1 : 0.25;
+        if (visibility === 'opened') {
+          polygon(object.body, object.bodyColor);
+          ctx.fillStyle = object.detailColor;
+          ctx.fillRect(-2, -44, 4, 9);
+        } else
           polygon(
             [
-              { x: -12, y: 0 },
-              { x: 12, y: 0 },
-              { x: 8, y: -20 },
-              { x: -7, y: -18 },
+              { x: -7, y: 0 },
+              { x: 7, y: 0 },
+              { x: 5, y: -38 },
+              { x: -5, y: -38 },
             ],
-            skin.objects.tower.bodyColor,
+            object.bodyColor,
           );
-        } else if (tile.landmark === 'spring') {
-          ctx.fillStyle = skin.objects.spring.bodyColor;
-          ctx.beginPath();
-          ctx.ellipse(0, 0, 20, 10, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = skin.objects.spring.waterColor;
-          ctx.beginPath();
-          ctx.ellipse(0, -2, 15, 6, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = skin.objects.spring.detailColor;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(-6, -3);
-          ctx.lineTo(5, -3);
-          ctx.stroke();
-        } else {
-          for (const x of [-14, 9])
-            polygon(
-              [
-                { x, y: 0 },
-                { x: x + 7, y: 0 },
-                { x: x + 7, y: -28 },
-                { x, y: -32 },
-              ],
-              skin.objects.ruins.bodyColor,
-            );
-          polygon(
-            [
-              { x: -14, y: -28 },
-              { x: 16, y: -28 },
-              { x: 12, y: -36 },
-              { x: -12, y: -35 },
-            ],
-            skin.objects.ruins.bodyColor,
-          );
-          ctx.fillStyle = skin.objects.ruins.detailColor;
-          ctx.fillRect(-5, -4, 9, 4);
-        }
         ctx.restore();
         continue;
-      }
-      if (
-        (tile.x === 0 && tile.y === 0) ||
-        (tile.landmark === 'tower' &&
-          (visibility === 'opened' ||
-            (tile.towerOrder === 0 &&
-              world.destination?.x === tile.x &&
-              world.destination?.y === tile.y)))
-      ) {
-        const object = tile.x === 0 && tile.y === 0 ? skin.objects.city : skin.objects.tower;
-        if (
-          visibility === 'opened' &&
-          drawAsset(tile.x === 0 && tile.y === 0 ? 'city' : 'tower', base)
-        )
-          continue;
-        ctx.save();
-        ctx.translate(base.x, base.y);
-        ctx.scale(camera.zoom, camera.zoom);
-        if (tile.x === 0 && tile.y === 0) {
-          const total = Object.values(world.facilities).reduce((a, b) => a + b, 0);
-          const houses =
-            total >= CONFIG.cityTownFacilityLevels
-              ? 3
-              : total >= CONFIG.cityVillageFacilityLevels
-                ? 1
-                : 0;
-          for (let i = 0; i < houses; i++) {
-            ctx.save();
-            ctx.translate(i === 0 ? -22 : 20 + (i - 1) * 9, i === 2 ? -10 : 4);
-            ctx.scale(0.45, 0.45);
-            polygon(object.body, object.bodyColor);
-            polygon(object.roof, object.roofColor);
-            ctx.restore();
-          }
-          polygon(object.body, object.bodyColor);
-          polygon(object.roof, object.roofColor);
-          ctx.fillStyle = object.doorColor;
-          ctx.fillRect(-3, -15, 6, 15);
-          ctx.fillRect(-12, -23, 4, 5);
-          ctx.fillRect(8, -23, 4, 5);
-        } else {
-          ctx.globalAlpha = visibility === 'opened' ? 1 : 0.5;
-          polygon(object.body, object.bodyColor);
-          if (visibility === 'opened') {
-            ctx.fillStyle = object.detailColor;
-            ctx.fillRect(-2, -44, 4, 9);
-          }
-        }
-        ctx.restore();
-        continue;
-      }
-      // Other enabled towers are only anonymous shapes until they are opened.
-      if (tile.landmark === 'tower') {
-        ctx.save();
-        ctx.translate(base.x, base.y);
-        ctx.scale(camera.zoom, camera.zoom);
-        ctx.globalAlpha = 0.25;
-        polygon(
-          [
-            { x: -7, y: 0 },
-            { x: 7, y: 0 },
-            { x: 5, y: -38 },
-            { x: -5, y: -38 },
-          ],
-          skin.objects.tower.bodyColor,
-        );
-        ctx.restore();
       }
       if (visibility === 'hidden') {
         // Sparse, sharp cartographic strokes; no blurred or moving overlay.
@@ -1446,7 +1036,7 @@
           ctx.globalAlpha = objectAlpha * detail;
           ctx.strokeStyle = object.detailColor;
           ctx.lineWidth = 0.8;
-          // Veins follow the skin's leaf polygons, including alternate skins.
+          // Veins follow the skin's leaf polygons, with the single look.
           for (const leaf of shapes.slice(1)) {
             const center = leaf.reduce(
               (p, q) => ({ x: p.x + q.x / leaf.length, y: p.y + q.y / leaf.length }),
@@ -1555,62 +1145,11 @@
     )
       requestDraw();
   }
-  // The memo and the map share the same arch silhouette and open passage.
-  function drawArch(pen, x, y, scale, inkOnly = false) {
-    const object = TapSkin.current.objects.stone_arch;
-    const path = () => {
-      pen.beginPath();
-      pen.moveTo(-68, 0);
-      pen.lineTo(-68, -27);
-      pen.bezierCurveTo(-68, -78, 68, -78, 68, -27);
-      pen.lineTo(68, 0);
-      pen.lineTo(38, 0);
-      pen.lineTo(38, -26);
-      pen.bezierCurveTo(38, -50, -38, -50, -38, -26);
-      pen.lineTo(-38, 0);
-      pen.closePath();
-    };
-    pen.save();
-    pen.translate(x, y);
-    pen.scale(scale, scale);
-    pen.lineJoin = 'round';
-    pen.strokeStyle = inkOnly ? TapSkin.current.objects.memo.inkColor : object.lineColor;
-    pen.lineWidth = inkOnly ? 2 : 1.2;
-    if (!inkOnly) {
-      pen.save();
-      pen.translate(8, -8);
-      path();
-      pen.fillStyle = object.shadeColor;
-      pen.fill();
-      pen.stroke();
-      pen.restore();
-    }
-    path();
-    if (!inkOnly) {
-      pen.fillStyle = object.faceColor;
-      pen.fill();
-    }
-    pen.stroke();
-    pen.beginPath();
-    pen.moveTo(-78, 5);
-    pen.lineTo(78, 5);
-    pen.moveTo(0, -65);
-    pen.lineTo(0, -45);
-    pen.moveTo(-55, -43);
-    pen.lineTo(-34, -31);
-    pen.moveTo(55, -43);
-    pen.lineTo(34, -31);
-    pen.moveTo(-68, -14);
-    pen.lineTo(-38, -14);
-    pen.moveTo(38, -14);
-    pen.lineTo(68, -14);
-    pen.stroke();
-    pen.restore();
-  }
+  // The shared ground supports the same cutout used in the memo picture.
   function drawMonumentPart(tile, base, now) {
     const monument = monumentsByCoordinate.get(tile.x + ',' + tile.y);
     if (!monument || tile.visibility !== 'opened') return;
-    const object = TapSkin.current.objects.stone_arch,
+    const object = TapSkin.current.objects.landmarkBase,
       opening = openings.get(tile.x + ',' + tile.y);
     ctx.save();
     if (opening)
@@ -1626,179 +1165,95 @@
   }
   function drawMonument(monument, now) {
     if (!TapWorld.monumentStatus(world, monument, tilesByCoordinate).fullyRevealed) return;
-    // Paint the shared silhouette after the ground so neither pillar is covered by a later tile.
-    const base = surface(monument.x + 0.5, monument.y + 1.5, now);
+    // Paint the cutout after the ground so a later footprint tile cannot cover it.
     const pending = monument.occupied.map((p) => openings.get(p.x + ',' + p.y)).filter(Boolean);
     const revealAt = pending.length ? Math.max(...pending.map((e) => e.at)) : null;
     const alpha = revealAt === null ? 1 : ease((now - revealAt) / CONFIG.completionRevealMs);
     if (alpha <= 0) return;
     ctx.save();
     ctx.globalAlpha = alpha;
-    if (monument.type === 'stone_arch' && CONFIG.archTrial === 'original') {
-      if (!drawAsset('stone_arch', base, alpha))
-        drawProjectedArch(base, (CONFIG.tileWidth * camera.zoom * 2.4) / 136);
-    } else drawLandmarkStructure(monument, now);
+    drawLandmarkStructure(monument, now);
     ctx.restore();
   }
-  function drawProjectedArch(base, scale) {
-    // Map the arch's horizontal axis into the same plane as its pillars and roof.
-    ctx.save();
-    ctx.translate(base.x, base.y);
-    ctx.transform(
-      Math.cos(CONFIG.viewYaw) + (CONFIG.tileSkew / CONFIG.tileWidth) * Math.sin(CONFIG.viewYaw),
-      (CONFIG.tileHeight / CONFIG.tileWidth) * Math.sin(CONFIG.viewYaw),
-      0,
-      1,
-      0,
-      0,
-    );
-    drawArch(ctx, 0, 0, scale);
-    ctx.restore();
-  }
-  // Trial forms share ground projection and skin colors, without gameplay effects.
+  // The adopted cutouts stay frontal; the ground footprint uses the map projection.
   function drawLandmarkStructure(monument, now, drawing = null) {
-    const stone = TapSkin.current.objects.stone_arch,
-      pen = drawing?.pen || ctx,
-      zoom = drawing?.zoom ?? camera.zoom;
-    const paint = (points, fill, stroke) => polygon(points, fill, stroke, pen, zoom);
-    const at =
-      drawing?.at ||
-      ((x, y, z = 0) => {
-        const p = surface(monument.x + x, monument.y + y, now);
-        return { x: p.x, y: p.y - z * zoom };
-      });
-    const block = (x1, y1, x2, y2, z1, z2) => {
-      paint(
-        [at(x1, y2, z1), at(x2, y2, z1), at(x2, y2, z2), at(x1, y2, z2)],
-        stone.faceColor,
-        stone.lineColor,
+    const pen = drawing?.pen || ctx;
+    const zoom = drawing?.zoom ?? camera.zoom;
+    const base = drawing?.at
+      ? drawing.at(1, 1.5, 0)
+      : surface(monument.x + 1, monument.y + 1.5, now);
+    const asset = TapSkin.current.assets[monument.type];
+    if (asset?.image) {
+      pen.drawImage(
+        asset.image,
+        base.x - asset.anchorX * zoom,
+        base.y - asset.anchorY * zoom,
+        asset.width * zoom,
+        asset.height * zoom,
       );
-      paint(
-        [at(x2, y1, z1), at(x2, y2, z1), at(x2, y2, z2), at(x2, y1, z2)],
-        stone.shadeColor,
-        stone.lineColor,
-      );
-      paint(
-        [at(x1, y1, z2), at(x2, y1, z2), at(x2, y2, z2), at(x1, y2, z2)],
-        stone.baseColor,
-        stone.lineColor,
-      );
-    };
-    // A shared low plinth binds all nine occupied tiles into one footprint.
-    block(-0.92, -0.92, 1.92, 1.92, 0, 5);
-    if (monument.type === 'stone_arch') {
-      const back = at(0.5, -0.65, 5),
-        front = at(0.5, 1.65, 5);
-      const scale = (CONFIG.tileWidth * zoom * 2.6) / 136;
-      drawProjectedArch(back, scale);
-      // Deep piers and voussoir roof connect the rear and front arches.
-      block(-0.8, -0.65, -0.23, 1.65, 5, 48);
-      block(1.23, -0.65, 1.8, 1.65, 5, 48);
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI,
-          b = ((i + 1) / 12) * Math.PI;
-        const p = (angle) => ({ x: 0.5 + Math.cos(angle) * 1.3, z: 32 + Math.sin(angle) * 66 });
-        const q = p(a),
-          r = p(b);
-        paint(
-          [at(q.x, -0.65, q.z), at(r.x, -0.65, r.z), at(r.x, 1.65, r.z), at(q.x, 1.65, q.z)],
-          stone.baseColor,
-          stone.lineColor,
-        );
-      }
-      drawProjectedArch(front, scale);
       return;
     }
-    switch (monument.type) {
-      case 'modern_building':
-        block(-0.5, -0.55, 1.5, 1.55, 5, 160);
-        for (let z = 25; z < 160; z += 24) block(-0.51, 1.53, 1.51, 1.57, z, z + 3);
-        break;
-      case 'giant_statue':
-        block(-0.55, -0.3, 1.55, 1.3, 5, 18);
-        block(-0.25, 0.2, 0.28, 0.9, 18, 62);
-        block(0.72, 0.2, 1.25, 0.9, 18, 62);
-        block(-0.4, 0.05, 1.4, 1.1, 62, 113);
-        block(-0.68, 0.3, -0.4, 0.8, 55, 105);
-        block(1.4, 0.3, 1.68, 0.8, 55, 105);
-        block(0.08, 0.18, 0.92, 0.98, 113, 146);
-        break;
-      case 'stepped_pyramid':
-        for (let i = 0; i < 5; i++)
-          block(
-            -0.8 + i * 0.22,
-            -0.8 + i * 0.22,
-            1.8 - i * 0.22,
-            1.8 - i * 0.22,
-            5 + i * 19,
-            24 + i * 19,
-          );
-        break;
-      case 'ring_gate': {
-        const center = at(0.5, 0.5, 79);
-        pen.strokeStyle = stone.shadeColor;
-        pen.lineWidth = 18 * zoom;
-        pen.beginPath();
-        pen.ellipse(
-          center.x + 7 * zoom,
-          center.y - 7 * zoom,
-          62 * zoom,
-          65 * zoom,
-          0,
-          0,
-          Math.PI * 2,
-        );
-        pen.stroke();
-        pen.strokeStyle = stone.faceColor;
-        pen.beginPath();
-        pen.ellipse(center.x, center.y, 62 * zoom, 65 * zoom, 0, 0, Math.PI * 2);
-        pen.stroke();
-        block(-0.1, 0.2, 1.1, 0.8, 5, 18);
-        break;
+    // A quiet silhouette keeps discovery usable when an image cannot load.
+    pen.save();
+    pen.translate(base.x, base.y);
+    pen.scale(zoom, zoom);
+    const colors = {
+      doll_keeper: '#994638',
+      ball_chasers: '#bd8a48',
+      couple_under_trees: '#476543',
+      child_on_rock: '#363d37',
+      guard_in_wooden_frame: '#35352f',
+      piper_and_birds: '#9a663c',
+      elder_with_black_dog: '#3f4850',
+    };
+    pen.fillStyle = '#9a9277';
+    pen.beginPath();
+    pen.ellipse(0, -4, 54, 13, 0, 0, Math.PI * 2);
+    pen.fill();
+    const person = (x, tall = 80) => {
+      pen.fillStyle = colors[monument.type];
+      pen.fillRect(x - 15, -tall, 30, tall - 10);
+      pen.fillStyle = '#c7af83';
+      pen.beginPath();
+      pen.arc(x, -tall - 10, 13, 0, Math.PI * 2);
+      pen.fill();
+    };
+    if (monument.type === 'ball_chasers') {
+      person(-38, 62);
+      person(0, 100);
+      person(38, 82);
+      pen.fillStyle = '#be873a';
+      pen.beginPath();
+      pen.arc(28, -133, 12, 0, Math.PI * 2);
+      pen.fill();
+    } else if (monument.type === 'couple_under_trees') {
+      person(-22);
+      person(22);
+      pen.fillStyle = '#496144';
+      pen.beginPath();
+      pen.ellipse(0, -135, 62, 28, 0, 0, Math.PI * 2);
+      pen.fill();
+    } else {
+      person(0, monument.type === 'child_on_rock' ? 58 : 94);
+      if (monument.type === 'guard_in_wooden_frame') {
+        pen.strokeStyle = '#81683f';
+        pen.lineWidth = 5;
+        pen.strokeRect(-43, -148, 86, 146);
       }
-      case 'twin_obelisks':
-        for (const x of [-0.5, 1]) {
-          block(x, -0.4, x + 0.5, 1.4, 5, 105);
-          paint(
-            [at(x, 1.4, 105), at(x + 0.5, 1.4, 105), at(x + 0.25, 0.5, 143)],
-            stone.faceColor,
-            stone.lineColor,
-          );
-        }
-        break;
-      case 'silent_dome': {
-        const p = at(0.5, 0.6, 5);
-        pen.fillStyle = stone.faceColor;
-        pen.strokeStyle = stone.lineColor;
-        pen.beginPath();
-        pen.ellipse(p.x, p.y, 96 * zoom, 99 * zoom, 0, Math.PI, Math.PI * 2);
-        pen.closePath();
-        pen.fill();
-        pen.stroke();
-        block(-0.8, 0.6, 1.8, 1.2, 5, 15);
-        break;
+      if (monument.type === 'elder_with_black_dog') {
+        pen.fillStyle = '#292a25';
+        pen.fillRect(28, -49, 32, 43);
       }
-      case 'long_colonnade':
-        for (const y of [-0.5, 1.25])
-          for (const x of [-0.6, 0.35, 1.3]) block(x, y, x + 0.3, y + 0.3, 5, 86);
-        block(-0.7, -0.65, 1.75, 1.7, 86, 100);
-        break;
-      case 'stone_chair':
-        for (const y of [-0.5, 1.1])
-          for (const x of [-0.5, 1.1]) block(x, y, x + 0.4, y + 0.4, 5, 43);
-        block(-0.65, -0.65, 1.65, 1.65, 43, 58);
-        block(-0.65, -0.65, 1.65, -0.25, 58, 139);
-        break;
-      case 'spiral_tower':
-        block(0.15, 0.15, 0.85, 0.85, 5, 128);
-        for (let i = 0; i < 12; i++) {
-          const a = (i * Math.PI) / 3,
-            x = 0.5 + Math.cos(a) * 0.7,
-            y = 0.5 + Math.sin(a) * 0.7;
-          block(x - 0.34, y - 0.34, x + 0.34, y + 0.34, 8 + i * 9, 15 + i * 9);
-        }
-        break;
+      if (monument.type === 'doll_keeper') {
+        pen.fillStyle = '#d0cbb7';
+        pen.fillRect(7, -68, 18, 31);
+      }
+      if (monument.type === 'piper_and_birds') {
+        pen.fillStyle = '#bb964b';
+        pen.fillRect(-28, -102, 58, 4);
+      }
     }
+    pen.restore();
   }
   function drawMemoClue(now) {
     if (world.memo.status !== 'placed') return;
@@ -1928,7 +1383,6 @@
   }
   function drawDestination(now) {
     const destinations = TapWorld.destinations(world, tilesByCoordinate);
-    if (world.learning.town === 'guiding') destinations.push({ x: 0, y: 0, city: true });
     if (!destinations.length) return;
     const margin = CONFIG.markerMargin,
       spacing = CONFIG.markerSpacing;
@@ -1938,11 +1392,9 @@
       bottom = Math.max(top, Math.min(height, footerTop) - margin);
     const panel = !settingsPanel.hidden
         ? settingsPanel.getBoundingClientRect()
-        : !townPanel.hidden
-          ? townPanel.getBoundingClientRect()
-          : memoPanel.hidden
-            ? null
-            : memoPanel.getBoundingClientRect(),
+        : memoPanel.hidden
+          ? null
+          : memoPanel.getBoundingClientRect(),
       placed = [];
     const available = (x, y) =>
       !(
@@ -1992,11 +1444,10 @@
       placed.push({ x, y });
       const offscreen = x !== target.x || y !== target.y,
         ui = TapSkin.current.ui;
-      const label = destination.city
-        ? '街'
-        : tilesByCoordinate.get(destination.x + ',' + destination.y)?.landmark === 'tower'
-          ? '塔'
-          : 'アーチ';
+      const label =
+        TapWorld.MONUMENTS[
+          world.monuments.find((o) => o.x === destination.x && o.y === destination.y)?.type
+        ] || '目的地';
       ctx.save();
       if (offscreen) {
         ctx.beginPath();
@@ -2013,9 +1464,9 @@
       ctx.font = '20px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.strokeText(destination.city ? '街' : '★', x, y);
-      ctx.fillText(destination.city ? '街' : '★', x, y);
-      if (destinations.length > 1 && !destination.city) {
+      ctx.strokeText('★', x, y);
+      ctx.fillText('★', x, y);
+      if (destinations.length > 1) {
         ctx.font = '10px sans-serif';
         ctx.strokeText(label, x, y + 16);
         ctx.fillText(label, x, y + 16);
@@ -2073,12 +1524,7 @@
     };
   }
   function canDevelop(tile) {
-    const available = Math.min(
-      TapWorld.maximumPoints(world),
-      world.points +
-        Math.max(0, Date.now() - world.lastCalculatedAt) * TapWorld.recoveryRate(world),
-    );
-    return TapWorld.eligible(tile, tilesByCoordinate) && available >= 1;
+    return TapWorld.eligible(tile, tilesByCoordinate);
   }
   function press(p) {
     if (!started || suspended || camera.zoom < CONFIG.minTapZoom) return;
@@ -2184,7 +1630,7 @@
       const kind =
         result === 'blocked' || result === 'empty'
           ? 'blocked'
-          : result === 'opened' || result === 'tower' || result === 'spring' || result === 'ruins'
+          : result === 'opened' || result === 'tower'
             ? 'complete'
             : result === 'touch' || result === 'memo'
               ? 'opened'
@@ -2200,40 +1646,14 @@
             );
             towerReveals.set(tile.x + ',' + tile.y, { at: now + distance * CONFIG.towerRingMs });
           }
-        toast(
-          held.tile.towerOrder === 0
-            ? '古い塔から視界が広がりました。開いた土地に残る手掛かりを探してみましょう。'
-            : '古い塔から視界が広がりました。気の向くままに地図を広げましょう。',
-        );
+        toast('古い塔から視界が広がりました。');
       }
       if (completion?.monumentReached)
         toast(
           TapWorld.MONUMENTS[completion.monumentReached.type] +
             'を見つけました。全体が姿を現します。',
         );
-      if (result === 'spring') toast('清水の泉を見つけました。探索ポイントが回復しました。');
-      if (result === 'ruins')
-        toast(
-          '遺跡を見つけました。開拓力 ' +
-            (TapWorld.developmentPower(world) - 1) +
-            ' → ' +
-            TapWorld.developmentPower(world) +
-            '。',
-        );
-      if (result === 'touch' && held.tile.x === 0 && held.tile.y === 0) openTown();
-      if (result === 'empty' && now - emptyNoticeAt >= CONFIG.emptyNoticeCooldownMs) {
-        emptyNoticeAt = now;
-        toast('探索ポイントが足りないため開拓できません。しばらく待つと回復します。');
-      }
-      learn();
-      if (
-        result === 'opened' ||
-        result === 'tower' ||
-        result === 'spring' ||
-        result === 'ruins' ||
-        result === 'memo'
-      )
-        save();
+      if (result === 'opened' || result === 'tower' || result === 'memo') save();
       else if (result === 'progress') queueSave();
       if (memo) showMemo(memo.alreadyReached);
       if (result === 'touch') reactScenery(held.tile, now);
@@ -2382,11 +1802,8 @@
   }
   function resume() {
     if (!suspended || document.hidden) return;
-    const gained = TapWorld.settle(world, Date.now(), true);
     suspended = false;
     resetAtmosphere();
-    if (started) showResume(gained);
-    else resumeGains = gained;
     updateHud();
     save();
     requestDraw();

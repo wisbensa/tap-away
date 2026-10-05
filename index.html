@@ -5,15 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#263d2e" />
     <title>Tap Away</title>
-    <link rel="stylesheet" href="style.css?v=0.10.0" />
+    <link rel="stylesheet" href="style.css?v=0.11.0" />
   </head>
   <body>
     <main>
       <header>
-        <div class="hud">
-          <span id="points"></span><span id="power"></span
-          ><span id="resources" aria-label="資源"></span>
-        </div>
         <button
           id="settings"
           type="button"
@@ -29,27 +25,14 @@
           <h2>設定</h2>
           <button id="settings-close" type="button">閉じる</button>
         </div>
-        <p>バージョン <span id="app-version">0.10.0</span></p>
+        <p>バージョン <span id="app-version">0.11.0</span></p>
         <button id="sound" type="button" aria-pressed="false">Sound OFF</button>
         <button id="notes" type="button">更新情報</button>
         <button id="help" type="button">遊び方・説明を見る</button>
+        <button id="next-map-settings" type="button" hidden>次の地図へ</button>
         <button id="backup" type="button">バックアップ</button>
         <section id="development-tools">
-          <p class="development-status">開発中 · PHASE 2</p>
-          <button id="dev-reset" type="button">DEV RESET</button
-          ><button id="dev-skin" type="button">DEV SKIN</button>
-          <label for="view-trial">視点の比較</label>
-          <select id="view-trial">
-            <option value="depth">左右も傾ける立体視点（試作）</option>
-            <option value="pitch">左右を変えず視点を下げる（試作）</option>
-            <option value="diagonal">横45度・低い視点（試作）</option>
-            <option value="original">従来の視点</option>
-          </select>
-          <label for="arch-trial">石のアーチの比較</label>
-          <select id="arch-trial">
-            <option value="full">3×3全体の建造物（試作）</option>
-            <option value="original">従来の描画</option>
-          </select>
+          <button id="dev-reset" type="button">DEV RESET</button>
         </section>
       </aside>
       <canvas
@@ -65,45 +48,17 @@
       <aside id="memo-panel" hidden aria-label="拾ったメモ">
         <button id="memo-close" type="button" aria-label="メモを閉じる">閉じる</button>
         <h2>拾ったメモ</h2>
-        <canvas
-          id="memo-picture"
-          width="180"
-          height="100"
-          aria-label="大きな石のアーチの絵"
-        ></canvas>
+        <select id="memo-select" aria-label="取得済みのメモ"></select>
+        <canvas id="memo-picture" width="180" height="100" aria-label="ランドマークの絵"></canvas>
         <p id="memo-hint"></p>
         <p id="memo-aside"></p>
         <p id="memo-context" role="status"></p>
       </aside>
-      <aside id="town-panel" hidden aria-label="街の施設">
-        <div class="town-heading">
-          <h2 id="town-state">街の施設</h2>
-          <button id="town-close" type="button">閉じる</button>
-        </div>
-        <p id="town-resources"></p>
-        <p id="production"></p>
-        <p id="resource-tiles"></p>
-        <section class="facility">
-          <h3 id="inn-level"></h3>
-          <p>探索できる量が増える。操作直後に全回復。</p>
-          <p id="inn-effect"></p>
-          <p id="inn-cost"></p>
-          <button id="upgrade-inn" type="button">建設する</button>
-        </section>
-        <section class="facility">
-          <h3 id="well-level"></h3>
-          <p>探索ポイントが早く戻る。</p>
-          <p id="well-effect"></p>
-          <p id="well-cost"></p>
-          <button id="upgrade-well" type="button">建設する</button>
-        </section>
-        <section class="facility">
-          <h3 id="workshop-level"></h3>
-          <p>1回のタップで、より深く開拓できる。</p>
-          <p id="workshop-effect"></p>
-          <p id="workshop-cost"></p>
-          <button id="upgrade-workshop" type="button">建設する</button>
-        </section>
+      <aside id="completion-panel" hidden aria-label="地図の探索が一区切り">
+        <h2>ひとつの旅が終わった</h2>
+        <p>この地図をもう少し開いても、新しい地図へ進んでも。</p>
+        <button id="continue-map" type="button">この地図を続ける</button>
+        <button id="next-map" type="button">次の地図へ</button>
       </aside>
       <section id="start-screen">
         <h2>TAP AWAY</h2>
@@ -118,18 +73,18 @@
       <dialog id="help-dialog" aria-labelledby="help-title">
         <button id="help-close" type="button">閉じる</button>
         <h2 id="help-title">遊び方</h2>
-        <p>開いた土地の隣をポチポチすると開拓が進みます。探索ポイントは時間で戻ります。</p>
-        <p>スワイプで地図を移動、ピンチで拡大・縮小。★が示す最初の塔では、見通しが広がります。</p>
         <p>
-          開いた土地に小さな紙片などを見つけたら、拡大してそのマスをタップ。拾ったメモが大きなランドマークへの手掛かりになります。
+          開いた土地の隣をポチポチすると開拓が進みます。スワイプで移動、ピンチで拡大・縮小できます。
         </p>
         <p>
-          森は木、岩場は岩、鉱山は金属を時間で生産します。閉じている間も一定時間まで生産されます。
+          開いた土地に小さな紙片を見つけたら、拡大してそのマスをタップ。拾ったメモと★を手掛かりにランドマークへ向かいましょう。
         </p>
         <p>
-          街をタップすると資源・生産速度・開拓した資源地形の数を確認できます。宿屋は探索量、井戸は回復速度、工房は1回の開拓力を増やします。
+          3つのランドマークと、それぞれのメモを見つけると一区切り。この地図を続けるか、次の地図へ進むかを選べます。
         </p>
-        <p>進む方向は自由です。案内に従わなくても、同じ世界の開拓を続けられます。</p>
+        <p>
+          塔に到達すると周囲が見渡せます。進行は自動保存され、途中から再開できます。次の地図へ進んだ後は、前の地図の進行を引き継ぎません。
+        </p>
       </dialog>
       <dialog id="backup-dialog">
         <button id="backup-close" type="button">閉じる</button>
@@ -143,19 +98,11 @@
         <button id="import-save" type="button">バックアップから復元</button>
         <p id="backup-status" role="status"></p>
       </dialog>
-      <dialog id="skin-dialog">
-        <button id="close-skin" type="button">閉じる</button>
-        <h2>開発用スキン</h2>
-        <label for="skin-choice">地図の見た目</label
-        ><select id="skin-choice">
-          <option value="">設定の指定を使用</option></select
-        ><button id="skin-default" type="button">標準指定へ戻す</button>
-      </dialog>
       <noscript>このゲームにはJavaScriptが必要です。</noscript>
     </main>
-    <script src="world.js?v=0.10.0"></script>
-    <script src="skin-loader.js?v=0.10.0"></script>
-    <script src="scenery-renderer.js?v=0.10.0"></script>
-    <script src="app.js?v=0.10.0"></script>
+    <script src="world.js?v=0.11.0"></script>
+    <script src="skin-loader.js?v=0.11.0"></script>
+    <script src="scenery-renderer.js?v=0.11.0"></script>
+    <script src="app.js?v=0.11.0"></script>
   </body>
 </html>
