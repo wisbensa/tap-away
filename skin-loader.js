@@ -41,26 +41,62 @@
     id: 'default',
     label: '標準',
     palette: {
-      hidden: { h: 48, s: 16, l: 34 },
-      preview: {
-        grass: { h: 85, s: 13, l: 46 },
-        tree: { h: 105, s: 13, l: 46 },
-        rock: { h: 55, s: 13, l: 46 },
-        mine: { h: 32, s: 13, l: 46 },
-      },
-      opened: {
-        grass: { h: 82, s: 30, l: 69 },
-        tree: { h: 99, s: 26, l: 67 },
-        rock: { h: 48, s: 29, l: 73 },
-        mine: { h: 40, s: 32, l: 69 },
-      },
+  "hidden": {
+    "h": 55,
+    "s": 12,
+    "l": 29
+  },
+  "preview": {
+    "grass": {
+      "h": 67,
+      "s": 12,
+      "l": 40
     },
+    "tree": {
+      "h": 83,
+      "s": 12,
+      "l": 38
+    },
+    "rock": {
+      "h": 43,
+      "s": 10,
+      "l": 44
+    },
+    "mine": {
+      "h": 32,
+      "s": 12,
+      "l": 40
+    }
+  },
+  "opened": {
+    "grass": {
+      "h": 65,
+      "s": 23,
+      "l": 60
+    },
+    "tree": {
+      "h": 78,
+      "s": 20,
+      "l": 54
+    },
+    "rock": {
+      "h": 43,
+      "s": 18,
+      "l": 68
+    },
+    "mine": {
+      "h": 35,
+      "s": 24,
+      "l": 61
+    }
+  }
+},
     objects: {
       tree: {
-        trunkColor: '#6d5736',
-        leafColor: '#365e43',
-        shadeColor: '#688341',
-        detailColor: '#c6c18399',
+        trunkColor: '#635039',
+        leafColor: '#303f2d',
+        shadeColor: '#59613a',
+        detailColor: '#92905d99',
         shapes: [
           [
             { x: -2, y: 0 },
@@ -97,9 +133,9 @@
         ],
       },
       rock: {
-        faceColor: '#c3b789',
-        shadeColor: '#948560',
-        lineColor: '#716b49',
+        faceColor: '#c5bca2',
+        shadeColor: '#99917b',
+        lineColor: '#706d59',
         shapes: [
           [
             { x: -13, y: 0 },
@@ -117,9 +153,9 @@
         ],
       },
       mine: {
-        shadeColor: '#98774e',
-        entranceColor: '#292b25',
-        timberColor: '#c4a06a',
+        shadeColor: '#887255',
+        entranceColor: '#272923',
+        timberColor: '#b29a6e',
         shapes: [
           [
             { x: -19, y: 2 },
@@ -158,8 +194,8 @@
         ],
       },
       tower: {
-        bodyColor: '#d3c498',
-        detailColor: '#3d513b',
+        bodyColor: '#d0c7ad',
+        detailColor: '#444b37',
         body: [
           { x: -10, y: 0 },
           { x: 10, y: 0 },
@@ -546,7 +582,7 @@
         bodyColor: '#6d895e',
         shadeColor: '#53714f',
         detailColor: '#7f7350',
-        accentColor: '#bc784e',
+        accentColor: '#a44830',
         shapes: [
           [
             { x: -1.5, y: 0 },
@@ -684,7 +720,7 @@
       },
       symmetric_tree: {
         bodyColor: '#827b5a',
-        shadeColor: '#365e43',
+        shadeColor: '#303f2d',
         detailColor: '#435f45',
         accentColor: '#79935f',
         shapes: [
@@ -833,6 +869,29 @@
       atmosphere: {
         shadowColor: '#25372c',
         detailColor: '#485b43',
+        rabbitColor: '#e0d6bb',
+        lizardColor: '#697348',
+        lizardShape: [
+          { x: -18, y: 1 }, { x: -8, y: -2 }, { x: -3, y: -3 },
+          { x: -5, y: -7 }, { x: -2, y: -6 }, { x: 0, y: -3 },
+          { x: 5, y: -3 }, { x: 8, y: -1 }, { x: 5, y: 2 },
+          { x: 1, y: 2 }, { x: 3, y: 6 }, { x: 0, y: 5 },
+          { x: -2, y: 2 }, { x: -7, y: 2 }, { x: -10, y: 5 },
+          { x: -12, y: 4 }, { x: -9, y: 1 },
+        ],
+        stoneShape: [
+          { x: -5, y: -2 }, { x: -2, y: -5 }, { x: 3, y: -4 },
+          { x: 5, y: 0 }, { x: 2, y: 4 }, { x: -3, y: 3 },
+        ],
+        rabbitShape: [
+          { x: -13, y: -4 }, { x: -16, y: -8 }, { x: -11, y: -9 },
+          { x: -8, y: -13 }, { x: 0, y: -14 }, { x: 5, y: -12 },
+          { x: 6, y: -23 }, { x: 9, y: -24 }, { x: 9, y: -14 },
+          { x: 12, y: -22 }, { x: 15, y: -21 }, { x: 12, y: -12 },
+          { x: 16, y: -10 }, { x: 15, y: -6 }, { x: 8, y: -5 },
+          { x: 12, y: 0 }, { x: 7, y: 0 }, { x: 2, y: -4 },
+          { x: -4, y: -2 }, { x: -11, y: 0 }, { x: -14, y: -1 },
+        ],
         shadowShape: [
           { x: -1, y: 0 },
           { x: -0.8, y: -0.65 },
@@ -862,9 +921,9 @@
     },
     lines: {
       hidden: '#eeeade16',
-      edge: '#4f633a44',
-      eligible: '#75856b',
-      detail: '#466039aa',
+      edge: '#514c3026',
+      eligible: '#b5b491',
+      detail: '#485333bb',
       outline: '48, 65, 40',
       blockedOutline: '168, 70, 58',
       openedOutline: '224, 244, 194',

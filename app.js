@@ -70,7 +70,16 @@
     openedReboundStrength: 0.08,
     smallEventCooldownMs: 18000,
     smallEventChance: 0.12,
-    smallEventMs: 1500,
+    smallEventMs: 1900,
+    animalMinZoom: 0.65,
+    birdCount: 4,
+    birdTravel: 62,
+    birdRise: 64,
+    rabbitTravel: 86,
+    rabbitHopHeight: 13,
+    lizardTravel: 32,
+    stoneTravel: 25,
+    stoneBounceHeight: 4,
     markerMargin: 36,
     markerRadius: 28,
     markerSpacing: 60,
@@ -450,7 +459,7 @@
       tile.visibility !== 'opened' ||
       tile.landmark ||
       (tile.x === 0 && tile.y === 0) ||
-      !['grass', 'tree'].includes(tile.kind) ||
+      !['grass', 'tree', 'rock'].includes(tile.kind) ||
       monumentsByCoordinate.has(tile.x + ',' + tile.y) ||
       sceneryByCoordinate.has(tile.x + ',' + tile.y) ||
       now < atmosphere.nextSmall
@@ -458,7 +467,13 @@
       return;
     atmosphere.nextSmall = now + CONFIG.smallEventCooldownMs;
     if (Math.random() < CONFIG.smallEventChance)
-      atmosphere.small = { tile, at: now, kind: tile.kind === 'tree' ? 'leaves' : 'birds' };
+      atmosphere.small = {
+        tile, at: now,
+        kind: tile.kind === 'tree' ? 'leaves'
+          : tile.kind === 'rock' ? (Math.random() < 0.5 ? 'lizard' : 'stone')
+          : Math.random() < 0.5 ? 'rabbit' : 'birds',
+        direction: Math.random() < 0.5 ? -1 : 1,
+      };
   }
   function shadowGeometry(shadow, now) {
     const progress = clamp((now - shadow.at) / CONFIG.shadowMs, 0, 1);
@@ -504,23 +519,71 @@
       if (t >= 1) atmosphere.small = null;
       else {
         const p = surface(small.tile.x + 0.5, small.tile.y + 0.5, now),
-          z = camera.zoom;
+          z = ['leaves', 'lizard', 'stone'].includes(small.kind)
+            ? camera.zoom : Math.max(CONFIG.animalMinZoom, camera.zoom);
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.scale(z, z);
-        ctx.globalAlpha = Math.sin(Math.PI * t) * 0.7;
-        ctx.strokeStyle = TapSkin.current.objects.atmosphere.detailColor;
-        ctx.lineWidth = 1.5;
-        const outline =
-          TapSkin.current.objects.atmosphere[small.kind === 'leaves' ? 'leafShape' : 'birdShape'];
-        for (let i = 0; i < 3; i++) {
-          const x = (i - 1) * 10 + t * 22,
-            y = -12 - t * 35 - i * 5;
+        const art = TapSkin.current.objects.atmosphere;
+        ctx.globalAlpha = Math.min(1, t * 10, (1 - t) * 5);
+        ctx.strokeStyle = art.detailColor;
+        ctx.lineWidth = small.kind === 'birds' ? 2.5 : 1.5;
+        if (small.kind === 'rabbit') {
+          const hop = Math.abs(Math.sin(t * Math.PI * 3));
+          ctx.translate((small.direction || 1) * (t * CONFIG.rabbitTravel - 12),
+            -3 - hop * CONFIG.rabbitHopHeight);
+          ctx.scale(small.direction || 1, 1);
+          polygon(art.rabbitShape, art.rabbitColor, art.detailColor);
+          ctx.fillStyle = art.detailColor;
           ctx.beginPath();
-          outline.forEach((p, index) =>
-            index ? ctx.lineTo(x + p.x, y + p.y) : ctx.moveTo(x + p.x, y + p.y),
-          );
-          ctx.stroke();
+          ctx.arc(10, -12, 1, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (small.kind === 'lizard' || small.kind === 'stone') {
+          ctx.save();
+          const direction = small.direction || 1;
+          if (small.kind === 'lizard') {
+            const run = Math.min(1, t / 0.75);
+            ctx.globalAlpha *= clamp((0.75 - t) / 0.2, 0, 1);
+            ctx.translate(direction * (-CONFIG.lizardTravel * (1 - run)),
+              2 - run * 8 + Math.sin(t * Math.PI * 14) * (1 - run) * 1.5);
+            ctx.scale(direction, 1);
+            polygon(art.lizardShape, art.lizardColor, art.detailColor);
+          } else {
+            const roll = 1 - (1 - t) ** 2;
+            ctx.translate(direction * (8 + roll * CONFIG.stoneTravel),
+              5 - Math.abs(Math.sin(t * Math.PI * 4)) * (1 - t) * CONFIG.stoneBounceHeight);
+            ctx.rotate(direction * roll * Math.PI * 3);
+            polygon(art.stoneShape, TapSkin.current.objects.rock.faceColor,
+              TapSkin.current.objects.rock.lineColor);
+            ctx.strokeStyle = TapSkin.current.objects.rock.shadeColor;
+            ctx.beginPath();
+            ctx.moveTo(-3, -2);
+            ctx.lineTo(2, 1);
+            ctx.stroke();
+          }
+          ctx.restore();
+          // The existing rock hides the escaping animal; it is not a new obstacle.
+          if (small.kind === 'lizard') {
+            ctx.globalAlpha = 1;
+            const rock = TapSkin.current.objects.rock;
+            polygon(rock.shapes[0], rock.faceColor, rock.lineColor);
+            polygon(rock.shapes[1], rock.shadeColor);
+          }
+        } else {
+          const outline = art[small.kind === 'leaves' ? 'leafShape' : 'birdShape'];
+          for (let i = 0; i < (small.kind === 'birds' ? CONFIG.birdCount : 3); i++) {
+            const bird = small.kind === 'birds';
+            const x = (i - 1) * 12 + (small.direction || 1) * t * (bird ? CONFIG.birdTravel : 22),
+              y = -12 - t * (bird ? CONFIG.birdRise : 35) - i * 7;
+            const wingScale = bird ? 1.5 + Math.sin(t * Math.PI * 12 + i) * 0.7 : 1;
+            ctx.beginPath();
+            outline.forEach((p, index) => {
+              const px = x + p.x * (bird ? 1.5 : 1), py = y + p.y * wingScale;
+              if (index) ctx.lineTo(px, py);
+              else ctx.moveTo(px, py);
+            });
+            ctx.stroke();
+          }
         }
         ctx.restore();
       }
@@ -951,6 +1014,25 @@
         visibility === 'hidden' ? skin.lines.hidden : skin.lines.edge,
       );
       remember(pts);
+      if (tile.road && visibility !== 'hidden') {
+        ctx.save();
+        ctx.globalAlpha = visibility === 'opened' ? 0.85 : 0.25 * fade;
+        ctx.strokeStyle = skin.objects.rock.faceColor;
+        ctx.lineWidth = 9 * camera.zoom;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(base.x, base.y);
+        ctx.lineTo(base.x + 0.01, base.y);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const next = worldIndex.get((x + dx) + ',' + (y + dy));
+          if (!next?.road) continue;
+          const edge = surface(x + 0.5 + dx * 0.5, y + 0.5 + dy * 0.5, now);
+          ctx.moveTo(base.x, base.y);
+          ctx.lineTo(edge.x, edge.y);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
       if (visibility === 'opened' && monumentsByCoordinate.has(x + ',' + y)) {
         drawMonumentPart(tile, base, now);
         continue;
@@ -1036,7 +1118,7 @@
           ctx.globalAlpha = objectAlpha * detail;
           ctx.strokeStyle = object.detailColor;
           ctx.lineWidth = 0.8;
-          // Veins follow the skin's leaf polygons, with the single look.
+          // Repeated small leaves give the same quiet garden rhythm as the landmarks.
           for (const leaf of shapes.slice(1)) {
             const center = leaf.reduce(
               (p, q) => ({ x: p.x + q.x / leaf.length, y: p.y + q.y / leaf.length }),
@@ -1050,6 +1132,18 @@
               }
             });
             ctx.stroke();
+          }
+          for (let row = 0; row < 7; row++) {
+            const cy = -19 - row * 5.3;
+            const span = row < 4 ? 18 : 12 - (row - 4) * 3;
+            for (let column = -2; column <= 2; column++) {
+              const cx = column * span / 2 + (row % 2 ? 2 : -1);
+              ctx.fillStyle = (row + column + seed) % 3 === 0
+                ? object.shadeColor : object.detailColor;
+              ctx.beginPath();
+              ctx.ellipse(cx, cy, 2.2, 4, column * 0.35, 0, Math.PI * 2);
+              ctx.fill();
+            }
           }
         }
       } else if (tile.kind === 'rock') {
@@ -1066,11 +1160,30 @@
         ctx.strokeStyle = skin.lines.detail;
         ctx.lineWidth = 0.9;
         ctx.beginPath();
-        for (let k = 0; k < 3; k++) {
-          ctx.moveTo(k * 5 - 8, 0);
-          ctx.lineTo(k * 5 - 8, -5);
+        for (let k = 0; k < 5; k++) {
+          const gx = k * 4 - 9;
+          const gy = -4 - ((seed + k * 3) % 6);
+          ctx.moveTo(gx, 1);
+          ctx.quadraticCurveTo(gx - 2, gy / 2, gx - 3, gy);
+          ctx.moveTo(gx, 1);
+          ctx.quadraticCurveTo(gx + 1, gy / 2, gx + 2, gy - 1);
         }
         ctx.stroke();
+        if (!tile.road && seed % 9 === 0) {
+          const flower = skin.objects.giant_flower;
+          ctx.fillStyle = seed % 3 === 0 ? skin.objects.rock.faceColor : flower.accentColor;
+          for (let petal = 0; petal < 5; petal++) {
+            const angle = petal * Math.PI * 2 / 5;
+            ctx.beginPath();
+            ctx.ellipse(-4 + Math.cos(angle) * 2, -9 + Math.sin(angle) * 2,
+              1.5, 2, angle, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.fillStyle = skin.objects.mine.timberColor;
+          ctx.beginPath();
+          ctx.arc(-4, -9, 1.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
         // An occasional oversized leaf belongs to ordinary terrain, with no event or reward.
         if (seed % 5 === 0) {
           const leaf = skin.objects.tree;
@@ -1445,7 +1558,7 @@
       const offscreen = x !== target.x || y !== target.y,
         ui = TapSkin.current.ui;
       const label =
-        TapWorld.MONUMENTS[
+        destination.label || TapWorld.MONUMENTS[
           world.monuments.find((o) => o.x === destination.x && o.y === destination.y)?.type
         ] || '目的地';
       ctx.save();
@@ -1466,7 +1579,7 @@
       ctx.textBaseline = 'middle';
       ctx.strokeText('★', x, y);
       ctx.fillText('★', x, y);
-      if (destinations.length > 1) {
+      if (destination.label || destinations.length > 1) {
         ctx.font = '10px sans-serif';
         ctx.strokeText(label, x, y + 16);
         ctx.fillText(label, x, y + 16);
