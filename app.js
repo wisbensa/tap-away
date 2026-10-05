@@ -435,6 +435,19 @@
   }
   sortTiles();
   const tilesByCoordinate = TapWorld.index(world);
+  const mapPanBounds = world.tiles.reduce(
+    (bounds, tile) => {
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        const p = groundProjection(tile.x + dx, tile.y + dy);
+        bounds.minX = Math.min(bounds.minX, p.x);
+        bounds.maxX = Math.max(bounds.maxX, p.x);
+        bounds.minY = Math.min(bounds.minY, p.y);
+        bounds.maxY = Math.max(bounds.maxY, p.y);
+      }
+      return bounds;
+    },
+    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity },
+  );
   const monumentsByCoordinate = new Map(
     world.monuments.flatMap((monument) =>
       monument.occupied.map((p) => [p.x + ',' + p.y, monument]),
@@ -1217,17 +1230,23 @@
           ctx.quadraticCurveTo(gx + 1, gy / 2, gx + 3, gy * 1.5 - 1);
         }
         ctx.stroke();
-        if (!tile.road && seed % 7 === 0) {
+        if (!tile.road && seed % 3 === 0) {
           const flower = skin.objects.giant_flower;
-          ctx.fillStyle = seed % 3 === 0 ? skin.objects.rock.faceColor : flower.accentColor;
+          const petalColors = [
+            flower.accentColor,
+            flower.detailColor,
+            skin.objects.front_bird.shadeColor,
+            skin.objects.memo.paperColor,
+          ];
+          ctx.fillStyle = petalColors[Math.floor(seed / 3) % petalColors.length];
           for (let petal = 0; petal < 5; petal++) {
             const angle = (petal * Math.PI * 2) / 5;
             ctx.beginPath();
             ctx.ellipse(
-              -4 + Math.cos(angle) * 2,
-              -9 + Math.sin(angle) * 2,
-              1.5,
-              2,
+              -4 + Math.cos(angle) * 3,
+              -9 + Math.sin(angle) * 3,
+              2.2,
+              2.8,
               angle,
               0,
               Math.PI * 2,
@@ -1670,7 +1689,18 @@
     if (!oldWidth)
       camera.zoom = clamp(Math.min(width / 880, height / 650), CONFIG.initialMinZoom, 1.15);
 
+    constrainCamera();
     requestDraw();
+  }
+  function constrainCamera() {
+    // The outer ground edges may reach the viewport center, at every zoom level.
+    camera.x = clamp(camera.x, -mapPanBounds.maxX * camera.zoom, -mapPanBounds.minX * camera.zoom);
+    const centerOffsetY = height * 0.5 - height * 0.48;
+    camera.y = clamp(
+      camera.y,
+      centerOffsetY - mapPanBounds.maxY * camera.zoom,
+      centerOffsetY - mapPanBounds.minY * camera.zoom,
+    );
   }
   function point(event) {
     const r = canvas.getBoundingClientRect();
@@ -1682,6 +1712,7 @@
     camera.x = p.x - width / 2 - ((p.x - width / 2 - camera.x) * next) / before;
     camera.y = p.y - height * 0.48 - ((p.y - height * 0.48 - camera.y) * next) / before;
     camera.zoom = next;
+    constrainCamera();
     if (next < CONFIG.minTapZoom) releasePress(false);
     requestDraw();
   }
@@ -1910,6 +1941,7 @@
         zoomAt(prev.midpoint, next.distance / prev.distance);
         camera.x += next.midpoint.x - prev.midpoint.x;
         camera.y += next.midpoint.y - prev.midpoint.y;
+        constrainCamera();
       }
       gesture.pair = next;
       requestDraw();
@@ -1921,6 +1953,7 @@
       if (gesture.moved || gesture.multi) {
         camera.x += p.x - gesture.last.x;
         camera.y += p.y - gesture.last.y;
+        constrainCamera();
         canvas.classList.add('dragging');
         requestDraw();
       }

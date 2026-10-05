@@ -48,55 +48,55 @@
   },
   "preview": {
     "grass": {
-      "h": 88,
-      "s": 23,
+      "h": 79,
+      "s": 19,
       "l": 40
     },
     "tree": {
-      "h": 112,
-      "s": 21,
+      "h": 100,
+      "s": 17,
       "l": 38
     },
     "rock": {
-      "h": 18,
-      "s": 26,
+      "h": 47,
+      "s": 12,
       "l": 44
     },
     "mine": {
-      "h": 39,
-      "s": 29,
+      "h": 40,
+      "s": 23,
       "l": 40
     }
   },
   "opened": {
     "grass": {
-      "h": 88,
-      "s": 58,
+      "h": 79,
+      "s": 47,
       "l": 60
     },
     "tree": {
-      "h": 112,
-      "s": 52,
+      "h": 100,
+      "s": 43,
       "l": 54
     },
     "rock": {
-      "h": 18,
-      "s": 64,
+      "h": 47,
+      "s": 30,
       "l": 68
     },
     "mine": {
-      "h": 39,
-      "s": 72,
+      "h": 40,
+      "s": 57,
       "l": 61
     }
   }
 },
     objects: {
       tree: {
-  "trunkColor": "#75332d",
-  "leafColor": "#ad2440",
-  "shadeColor": "#ee6340",
-  "detailColor": "#ffd05acc",
+  "trunkColor": "#785031",
+  "leafColor": "#205c3e",
+  "shadeColor": "#73a53b",
+  "detailColor": "#c7cf63cc",
   "shapes": [
     [
       {
@@ -175,9 +175,9 @@
   ]
 },
       rock: {
-  "faceColor": "#ef8768",
-  "shadeColor": "#b64164",
-  "lineColor": "#723446",
+  "faceColor": "#d5d3ad",
+  "shadeColor": "#668d96",
+  "lineColor": "#425c61",
   "shapes": [
     [
       {
@@ -226,9 +226,9 @@
   ]
 },
       mine: {
-  "shadeColor": "#c85935",
-  "entranceColor": "#342136",
-  "timberColor": "#ecb447",
+  "shadeColor": "#af793c",
+  "entranceColor": "#283d36",
+  "timberColor": "#e2b54d",
   "shapes": [
     [
       {
@@ -541,10 +541,10 @@
         ],
       },
       dressed_tree: {
-        bodyColor: '#c24934',
-        shadeColor: '#328541',
-        detailColor: '#224c36',
-        accentColor: '#ed3045',
+        bodyColor: "#876338",
+        shadeColor: "#328541",
+        detailColor: "#224c36",
+        accentColor: "#d74d35",
         shapes: [
           [
             { x: -7, y: 0 },
@@ -631,10 +631,10 @@
         ],
       },
       front_bird: {
-        bodyColor: '#e7ae35',
-        shadeColor: '#377e62',
-        detailColor: '#28443c',
-        accentColor: '#e6314b',
+        bodyColor: "#e7ae35",
+        shadeColor: "#387baf",
+        detailColor: "#28443c",
+        accentColor: "#e6314b",
         shapes: [
           [
             { x: -6, y: -17 },
@@ -724,10 +724,10 @@
         ],
       },
       giant_flower: {
-        bodyColor: '#379342',
-        shadeColor: '#176d43',
-        detailColor: '#edb632',
-        accentColor: '#ed3045',
+        bodyColor: "#379342",
+        shadeColor: "#176d43",
+        detailColor: "#f2bf35",
+        accentColor: "#e94c36",
         shapes: [
           [
             { x: -1.5, y: 0 },
@@ -864,10 +864,10 @@
         ],
       },
       symmetric_tree: {
-        bodyColor: '#b74a35',
-        shadeColor: '#303f2d',
-        detailColor: '#dfaa32',
-        accentColor: '#eb4158',
+        bodyColor: "#876338",
+        shadeColor: "#21834d",
+        detailColor: "#dfaa32",
+        accentColor: "#4a9ca5",
         shapes: [
           [
             { x: -2, y: 0 },
