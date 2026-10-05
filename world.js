@@ -23,9 +23,9 @@
   });
   // Provisional pacing and density values: evaluate a leisurely ~30-minute route on devices.
   const RULES = {
-    saveVersion: 11,
+    saveVersion: 12,
     extent: 30,
-    monumentCount: 3,
+    monumentCount: 5,
     towerRadius: 5,
     // Provisional: keep distant, denser terrain from requiring long repeated tapping.
     costs: { grass: 4, tree: 6, rock: 8, mine: 10 },
@@ -270,7 +270,7 @@
     const w = {
       saveVersion: RULES.saveVersion,
       worldVersion: 2,
-      generatorVersion: 6,
+      generatorVersion: 7,
       seed,
       bounds: bounds(),
       savedAt: now,
@@ -596,10 +596,8 @@
       : [];
   }
   function isComplete(w) {
-    return (
-      [...w.memoHistory, w.memo].filter((m) => m.status === 'collected').length ===
-        RULES.monumentCount && w.monuments.every((o) => monumentStatus(w, o).reached)
-    );
+    return w.monuments.length === RULES.monumentCount &&
+      w.monuments.every((o) => monumentStatus(w, o).reached);
   }
   function protectedMonumentCoordinates(w, width = RULES.monumentProtectionWidth) {
     if (!Number.isInteger(width) || width < 0) throw Error('Invalid protection width');
@@ -630,7 +628,7 @@
       !w ||
       w.saveVersion !== RULES.saveVersion ||
       w.worldVersion !== 2 ||
-      w.generatorVersion !== 6 ||
+      w.generatorVersion !== 7 ||
       !isSeed(w.seed) ||
       !finite(w.savedAt) ||
       typeof w.introduced !== 'boolean' ||

@@ -261,6 +261,8 @@
     const complete = TapWorld.isComplete(world);
     completionPanel.hidden = !started || !complete || world.completionDismissed;
     document.querySelector('#next-map-settings').hidden = !complete;
+    document.querySelector('#next-map-footer').hidden =
+      !started || !complete || !world.completionDismissed;
     document.querySelector('#memo-select').hidden = !hasCollectedMemo;
   }
   document.querySelector('#continue-map').addEventListener('click', () => {
@@ -284,7 +286,12 @@
     reloadCommittedWorld();
   }
   document.querySelector('#next-map').addEventListener('click', nextMap);
-  document.querySelector('#next-map-settings').addEventListener('click', nextMap);
+  function confirmNextMap() {
+    if (!TapWorld.isComplete(world) || saveBlocked) return;
+    if (confirm('次の地図へ進みますか？現在の地図の進行は引き継がれません。')) nextMap();
+  }
+  document.querySelector('#next-map-settings').addEventListener('click', confirmNextMap);
+  document.querySelector('#next-map-footer').addEventListener('click', confirmNextMap);
   document.querySelector('#start').textContent = world.introduced ? 'つづきから' : 'はじめる';
   function startGame() {
     started = true;
@@ -1180,12 +1187,22 @@
       } else if (tile.kind === 'rock') {
         polygon(shapes[0], skin.objects.rock.faceColor, skin.objects.rock.lineColor);
         polygon(shapes[1], skin.objects.rock.shadeColor);
+        ctx.strokeStyle = skin.objects.rock.lineColor;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        for (let row = 0; row < 3; row++) {
+          ctx.moveTo(-13, -7 - row * 7);
+          ctx.lineTo(4 - row * 2, -7 - row * 7);
+        }
+        ctx.stroke();
       } else if (tile.kind === 'mine') {
         const object = skin.objects.mine;
         // The entrance and timber frame stay visible even in small previews.
         polygon(shapes[0], object.shadeColor);
         polygon(shapes[1], object.entranceColor);
         for (const shape of shapes.slice(2)) polygon(shape, object.timberColor);
+        ctx.fillStyle = skin.objects.giant_flower.accentColor;
+        ctx.fillRect(-3, -29, 6, 4);
       } else if (camera.zoom > 0.65) {
         ctx.globalAlpha = objectAlpha * clamp((camera.zoom - 0.65) / 0.35, 0, 1);
         ctx.strokeStyle = skin.lines.detail;
@@ -1195,12 +1212,12 @@
           const gx = k * 4 - 9;
           const gy = -4 - ((seed + k * 3) % 6);
           ctx.moveTo(gx, 1);
-          ctx.quadraticCurveTo(gx - 2, gy / 2, gx - 3, gy);
+          ctx.quadraticCurveTo(gx - 2, gy / 2, gx - 4, gy * 1.5);
           ctx.moveTo(gx, 1);
-          ctx.quadraticCurveTo(gx + 1, gy / 2, gx + 2, gy - 1);
+          ctx.quadraticCurveTo(gx + 1, gy / 2, gx + 3, gy * 1.5 - 1);
         }
         ctx.stroke();
-        if (!tile.road && seed % 9 === 0) {
+        if (!tile.road && seed % 7 === 0) {
           const flower = skin.objects.giant_flower;
           ctx.fillStyle = seed % 3 === 0 ? skin.objects.rock.faceColor : flower.accentColor;
           for (let petal = 0; petal < 5; petal++) {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#263d2e" />
     <title>Tap Away</title>
-    <link rel="stylesheet" href="style.css?v=0.11.1" />
+    <link rel="stylesheet" href="style.css?v=0.12.0" />
   </head>
   <body>
     <main>
@@ -25,7 +25,7 @@
           <h2>設定</h2>
           <button id="settings-close" type="button">閉じる</button>
         </div>
-        <p>バージョン <span id="app-version">0.11.1</span></p>
+        <p>バージョン <span id="app-version">0.12.0</span></p>
         <button id="sound" type="button" aria-pressed="false">Sound OFF</button>
         <button id="notes" type="button">更新情報</button>
         <button id="help" type="button">遊び方・説明を見る</button>
@@ -43,6 +43,7 @@
         <span id="notice" role="status"></span>
         <div class="footer-actions">
           <button id="memo-review" type="button" hidden>メモを見る</button>
+          <button id="next-map-footer" type="button" hidden>次の地図へ</button>
         </div>
       </footer>
       <aside id="memo-panel" hidden aria-label="拾ったメモ">
@@ -56,7 +57,7 @@
       </aside>
       <aside id="completion-panel" hidden aria-label="地図の探索が一区切り">
         <h2>ひとつの旅が終わった</h2>
-        <p>この地図をもう少し開いても、新しい地図へ進んでも。</p>
+        <p>5つのランドマークをすべて見つけました。この地図をもう少し開いても、新しい地図へ進んでも。</p>
         <button id="continue-map" type="button">この地図を続ける</button>
         <button id="next-map" type="button">次の地図へ</button>
       </aside>
@@ -80,7 +81,7 @@
           開いた土地に小さな紙片を見つけたら、拡大してそのマスをタップ。拾ったメモと★を手掛かりにランドマークへ向かいましょう。
         </p>
         <p>
-          3つのランドマークと、それぞれのメモを見つけると一区切り。この地図を続けるか、次の地図へ進むかを選べます。
+          5つのランドマークをすべて見つけると一区切り。メモの取得は任意です。この地図を続けるか、次の地図へ進むかを選べます。
         </p>
         <p>
           塔に到達すると周囲が見渡せます。進行は自動保存され、途中から再開できます。次の地図へ進んだ後は、前の地図の進行を引き継ぎません。
@@ -100,9 +101,9 @@
       </dialog>
       <noscript>このゲームにはJavaScriptが必要です。</noscript>
     </main>
-    <script src="world.js?v=0.11.1"></script>
-    <script src="skin-loader.js?v=0.11.1"></script>
-    <script src="scenery-renderer.js?v=0.11.1"></script>
-    <script src="app.js?v=0.11.1"></script>
+    <script src="world.js?v=0.12.0"></script>
+    <script src="skin-loader.js?v=0.12.0"></script>
+    <script src="scenery-renderer.js?v=0.12.0"></script>
+    <script src="app.js?v=0.12.0"></script>
   </body>
 </html>
