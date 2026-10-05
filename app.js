@@ -52,7 +52,7 @@
     maxOpenings: 64,
     towerRingMs: 80,
     towerFadeMs: 120,
-    memoDisplayMs: 10000,
+    memoDisplayMs: 11000,
     memoMinPixels: 7,
     shadowMinMs: 90000,
     shadowMaxMs: 180000,
@@ -161,6 +161,12 @@
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
+  function reloadCommittedWorld() {
+    clearTimeout(saveTimer);
+    // pagehide must not overwrite the committed replacement with the old world.
+    saveBlocked = true;
+    location.reload();
+  }
   function importSave(text) {
     try {
       const candidate = TapWorld.validate(JSON.parse(text));
@@ -172,9 +178,7 @@
         '読み込めませんでした。現行版のJSONか、端末の保存設定を確認してください。現在のセーブは保持しています。';
       return false;
     }
-    clearTimeout(saveTimer);
-    saveBlocked = true; // pagehide must not overwrite the committed import with the old world.
-    location.reload();
+    reloadCommittedWorld();
     return true;
   }
   document
@@ -252,11 +256,12 @@
   }
   const completionPanel = document.querySelector('#completion-panel');
   function updateHud() {
-    memoReview.hidden = !started || !latestCollectedMemo();
+    const hasCollectedMemo = Boolean(latestCollectedMemo());
+    memoReview.hidden = !started || !hasCollectedMemo;
     const complete = TapWorld.isComplete(world);
     completionPanel.hidden = !started || !complete || world.completionDismissed;
     document.querySelector('#next-map-settings').hidden = !complete;
-    document.querySelector('#memo-select').hidden = !latestCollectedMemo();
+    document.querySelector('#memo-select').hidden = !hasCollectedMemo;
   }
   document.querySelector('#continue-map').addEventListener('click', () => {
     world.completionDismissed = true;
@@ -276,9 +281,7 @@
       toast('次の地図を保存できませんでした。現在の地図は保持しています。');
       return;
     }
-    clearTimeout(saveTimer);
-    saveBlocked = true;
-    location.reload();
+    reloadCommittedWorld();
   }
   document.querySelector('#next-map').addEventListener('click', nextMap);
   document.querySelector('#next-map-settings').addEventListener('click', nextMap);
@@ -311,6 +314,9 @@
   function latestCollectedMemo() {
     return world.memo.status === 'collected' ? world.memo : world.memoHistory.at(-1);
   }
+  function collectedMemos() {
+    return [...world.memoHistory, world.memo].filter((memo) => memo.status === 'collected');
+  }
   function showMemo(alreadyReached = false, selected = null) {
     const memo = selected || latestCollectedMemo();
     const monument = memo && world.monuments.find((m) => m.id === memo.monumentId);
@@ -322,8 +328,7 @@
         ? 'この場所は、もう見つけていた。'
         : '★の先に、描かれた場所がある。';
     const picture = document.querySelector('#memo-picture'),
-      pen = picture.getContext('2d'),
-      skin = TapSkin.current;
+      pen = picture.getContext('2d');
     pen.clearRect(0, 0, picture.width, picture.height);
     picture.setAttribute('aria-label', TapWorld.MONUMENTS[monument.type] + 'の絵');
     drawLandmarkStructure(monument, 0, {
@@ -335,7 +340,7 @@
       }),
     });
     memoSelect.replaceChildren();
-    for (const item of [...world.memoHistory, world.memo].filter((m) => m.status === 'collected')) {
+    for (const item of collectedMemos()) {
       const option = document.createElement('option');
       option.value = item.monumentId;
       option.textContent =
@@ -350,9 +355,7 @@
   }
   const memoSelect = document.querySelector('#memo-select');
   memoSelect.addEventListener('change', () => {
-    const memo = [...world.memoHistory, world.memo].find(
-      (m) => m.monumentId === memoSelect.value && m.status === 'collected',
-    );
+    const memo = collectedMemos().find((m) => m.monumentId === memoSelect.value);
     if (memo) showMemo(false, memo);
   });
   document.querySelector('#memo-close').addEventListener('click', closeMemo);
@@ -468,10 +471,18 @@
     atmosphere.nextSmall = now + CONFIG.smallEventCooldownMs;
     if (Math.random() < CONFIG.smallEventChance)
       atmosphere.small = {
-        tile, at: now,
-        kind: tile.kind === 'tree' ? 'leaves'
-          : tile.kind === 'rock' ? (Math.random() < 0.5 ? 'lizard' : 'stone')
-          : Math.random() < 0.5 ? 'rabbit' : 'birds',
+        tile,
+        at: now,
+        kind:
+          tile.kind === 'tree'
+            ? 'leaves'
+            : tile.kind === 'rock'
+              ? Math.random() < 0.5
+                ? 'lizard'
+                : 'stone'
+              : Math.random() < 0.5
+                ? 'rabbit'
+                : 'birds',
         direction: Math.random() < 0.5 ? -1 : 1,
       };
   }
@@ -520,7 +531,8 @@
       else {
         const p = surface(small.tile.x + 0.5, small.tile.y + 0.5, now),
           z = ['leaves', 'lizard', 'stone'].includes(small.kind)
-            ? camera.zoom : Math.max(CONFIG.animalMinZoom, camera.zoom);
+            ? camera.zoom
+            : Math.max(CONFIG.animalMinZoom, camera.zoom);
         ctx.save();
         ctx.translate(p.x, p.y);
         ctx.scale(z, z);
@@ -530,8 +542,10 @@
         ctx.lineWidth = small.kind === 'birds' ? 2.5 : 1.5;
         if (small.kind === 'rabbit') {
           const hop = Math.abs(Math.sin(t * Math.PI * 3));
-          ctx.translate((small.direction || 1) * (t * CONFIG.rabbitTravel - 12),
-            -3 - hop * CONFIG.rabbitHopHeight);
+          ctx.translate(
+            (small.direction || 1) * (t * CONFIG.rabbitTravel - 12),
+            -3 - hop * CONFIG.rabbitHopHeight,
+          );
           ctx.scale(small.direction || 1, 1);
           polygon(art.rabbitShape, art.rabbitColor, art.detailColor);
           ctx.fillStyle = art.detailColor;
@@ -544,17 +558,24 @@
           if (small.kind === 'lizard') {
             const run = Math.min(1, t / 0.75);
             ctx.globalAlpha *= clamp((0.75 - t) / 0.2, 0, 1);
-            ctx.translate(direction * (-CONFIG.lizardTravel * (1 - run)),
-              2 - run * 8 + Math.sin(t * Math.PI * 14) * (1 - run) * 1.5);
+            ctx.translate(
+              direction * (-CONFIG.lizardTravel * (1 - run)),
+              2 - run * 8 + Math.sin(t * Math.PI * 14) * (1 - run) * 1.5,
+            );
             ctx.scale(direction, 1);
             polygon(art.lizardShape, art.lizardColor, art.detailColor);
           } else {
             const roll = 1 - (1 - t) ** 2;
-            ctx.translate(direction * (8 + roll * CONFIG.stoneTravel),
-              5 - Math.abs(Math.sin(t * Math.PI * 4)) * (1 - t) * CONFIG.stoneBounceHeight);
+            ctx.translate(
+              direction * (8 + roll * CONFIG.stoneTravel),
+              5 - Math.abs(Math.sin(t * Math.PI * 4)) * (1 - t) * CONFIG.stoneBounceHeight,
+            );
             ctx.rotate(direction * roll * Math.PI * 3);
-            polygon(art.stoneShape, TapSkin.current.objects.rock.faceColor,
-              TapSkin.current.objects.rock.lineColor);
+            polygon(
+              art.stoneShape,
+              TapSkin.current.objects.rock.faceColor,
+              TapSkin.current.objects.rock.lineColor,
+            );
             ctx.strokeStyle = TapSkin.current.objects.rock.shadeColor;
             ctx.beginPath();
             ctx.moveTo(-3, -2);
@@ -578,7 +599,8 @@
             const wingScale = bird ? 1.5 + Math.sin(t * Math.PI * 12 + i) * 0.7 : 1;
             ctx.beginPath();
             outline.forEach((p, index) => {
-              const px = x + p.x * (bird ? 1.5 : 1), py = y + p.y * wingScale;
+              const px = x + p.x * (bird ? 1.5 : 1),
+                py = y + p.y * wingScale;
               if (index) ctx.lineTo(px, py);
               else ctx.moveTo(px, py);
             });
@@ -795,17 +817,21 @@
       color = blendColor(palette.hidden, color, towerFade(tile, now));
     }
     if (display.reveal !== undefined) {
-      color = blendColor(color, palette.opened[tile.kind], display.reveal);
+      color = blendColor(color, palette.opened[groundKind(tile)], display.reveal);
     }
     const variation = display.visibility === 'opened' ? (tile.seed % 5) - 2 : 0;
     return `hsl(${color.h} ${color.s}% ${Math.max(0, color.l + variation - darkening)}%)`;
   }
+  function groundKind(tile) {
+    return monumentsByCoordinate.has(tile.x + ',' + tile.y) ? 'grass' : tile.kind;
+  }
   function terrainColor(tile, visibility, progress) {
     const palette = TapSkin.current.palette;
+    const kind = groundKind(tile);
     if (visibility !== 'preview')
-      return visibility === 'hidden' ? palette.hidden : palette.opened[tile.kind];
-    const preview = palette.preview[tile.kind],
-      opened = palette.opened[tile.kind],
+      return visibility === 'hidden' ? palette.hidden : palette.opened[kind];
+    const preview = palette.preview[kind],
+      opened = palette.opened[kind],
       ratio = clamp(progress / tile.requiredCost, 0, 1);
     return blendColor(preview, { ...opened, l: Math.min(60, opened.l - 6) }, ratio);
   }
@@ -1023,8 +1049,13 @@
         ctx.beginPath();
         ctx.moveTo(base.x, base.y);
         ctx.lineTo(base.x + 0.01, base.y);
-        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const next = worldIndex.get((x + dx) + ',' + (y + dy));
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const next = worldIndex.get(x + dx + ',' + (y + dy));
           if (!next?.road) continue;
           const edge = surface(x + 0.5 + dx * 0.5, y + 0.5 + dy * 0.5, now);
           ctx.moveTo(base.x, base.y);
@@ -1137,9 +1168,9 @@
             const cy = -19 - row * 5.3;
             const span = row < 4 ? 18 : 12 - (row - 4) * 3;
             for (let column = -2; column <= 2; column++) {
-              const cx = column * span / 2 + (row % 2 ? 2 : -1);
-              ctx.fillStyle = (row + column + seed) % 3 === 0
-                ? object.shadeColor : object.detailColor;
+              const cx = (column * span) / 2 + (row % 2 ? 2 : -1);
+              ctx.fillStyle =
+                (row + column + seed) % 3 === 0 ? object.shadeColor : object.detailColor;
               ctx.beginPath();
               ctx.ellipse(cx, cy, 2.2, 4, column * 0.35, 0, Math.PI * 2);
               ctx.fill();
@@ -1173,10 +1204,17 @@
           const flower = skin.objects.giant_flower;
           ctx.fillStyle = seed % 3 === 0 ? skin.objects.rock.faceColor : flower.accentColor;
           for (let petal = 0; petal < 5; petal++) {
-            const angle = petal * Math.PI * 2 / 5;
+            const angle = (petal * Math.PI * 2) / 5;
             ctx.beginPath();
-            ctx.ellipse(-4 + Math.cos(angle) * 2, -9 + Math.sin(angle) * 2,
-              1.5, 2, angle, 0, Math.PI * 2);
+            ctx.ellipse(
+              -4 + Math.cos(angle) * 2,
+              -9 + Math.sin(angle) * 2,
+              1.5,
+              2,
+              angle,
+              0,
+              Math.PI * 2,
+            );
             ctx.fill();
           }
           ctx.fillStyle = skin.objects.mine.timberColor;
@@ -1262,8 +1300,7 @@
   function drawMonumentPart(tile, base, now) {
     const monument = monumentsByCoordinate.get(tile.x + ',' + tile.y);
     if (!monument || tile.visibility !== 'opened') return;
-    const object = TapSkin.current.objects.landmarkBase,
-      opening = openings.get(tile.x + ',' + tile.y);
+    const opening = openings.get(tile.x + ',' + tile.y);
     ctx.save();
     if (opening)
       ctx.globalAlpha = opening.automatic
@@ -1273,7 +1310,7 @@
           )
         : completionReveal(opening, now);
     const pts = corners(tile, now);
-    polygon(pts, object.baseColor, object.lineColor);
+    polygon(pts, tileColor(tile, now), TapSkin.current.lines.edge);
     ctx.restore();
   }
   function drawMonument(monument, now) {
@@ -1558,9 +1595,11 @@
       const offscreen = x !== target.x || y !== target.y,
         ui = TapSkin.current.ui;
       const label =
-        destination.label || TapWorld.MONUMENTS[
+        destination.label ||
+        TapWorld.MONUMENTS[
           world.monuments.find((o) => o.x === destination.x && o.y === destination.y)?.type
-        ] || '目的地';
+        ] ||
+        '目的地';
       ctx.save();
       if (offscreen) {
         ctx.beginPath();

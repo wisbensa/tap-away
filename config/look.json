@@ -334,7 +334,7 @@
       "bodyColor": "#b9b49a",
       "shadeColor": "#969984",
       "detailColor": "#626957",
-      "accentColor": "#d2c9ab",
+      "accentColor": "#b58b49",
       "shapes": [
         [
           {
@@ -602,7 +602,7 @@
       "bodyColor": "#c3bfa1",
       "shadeColor": "#8d997a",
       "detailColor": "#5d7055",
-      "accentColor": "#3e6748",
+      "accentColor": "#587f67",
       "shapes": [
         [
           {
@@ -884,7 +884,7 @@
       "bodyColor": "#838164",
       "shadeColor": "#5b775b",
       "detailColor": "#485b46",
-      "accentColor": "#b5aa85",
+      "accentColor": "#ae6750",
       "shapes": [
         [
           {
@@ -1172,7 +1172,7 @@
       "bodyColor": "#8d9678",
       "shadeColor": "#66755a",
       "detailColor": "#435840",
-      "accentColor": "#bdb598",
+      "accentColor": "#c39448",
       "shapes": [
         [
           {
@@ -1460,7 +1460,7 @@
       "bodyColor": "#6d895e",
       "shadeColor": "#53714f",
       "detailColor": "#7f7350",
-      "accentColor": "#a44830",
+      "accentColor": "#bd6248",
       "shapes": [
         [
           {
@@ -1924,7 +1924,7 @@
       "bodyColor": "#827b5a",
       "shadeColor": "#365e43",
       "detailColor": "#435f45",
-      "accentColor": "#79935f",
+      "accentColor": "#719890",
       "shapes": [
         [
           {
@@ -2733,10 +2733,10 @@
       ]
     },
     "seated_statue": {
-      "bodyColor": "#b9b49a",
+      "bodyColor": "#c2b18b",
       "shadeColor": "#969984",
       "detailColor": "#626957",
-      "accentColor": "#d2c9ab",
+      "accentColor": "#b99257",
       "shapes": [
         [
           {
@@ -2893,10 +2893,10 @@
       ]
     },
     "long_statue": {
-      "bodyColor": "#b9b49a",
+      "bodyColor": "#9eafa0",
       "shadeColor": "#969984",
       "detailColor": "#626957",
-      "accentColor": "#d2c9ab",
+      "accentColor": "#77988b",
       "shapes": [
         [
           {
@@ -3056,7 +3056,7 @@
       "bodyColor": "#b9b49a",
       "shadeColor": "#969984",
       "detailColor": "#626957",
-      "accentColor": "#d2c9ab",
+      "accentColor": "#a86e59",
       "shapes": [
         [
           {

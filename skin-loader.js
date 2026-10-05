@@ -41,56 +41,56 @@
     id: 'default',
     label: '標準',
     palette: {
-  "hidden": {
-    "h": 55,
-    "s": 12,
-    "l": 29
-  },
-  "preview": {
-    "grass": {
-      "h": 67,
-      "s": 12,
-      "l": 40
+      hidden: {
+        h: 55,
+        s: 12,
+        l: 29,
+      },
+      preview: {
+        grass: {
+          h: 67,
+          s: 12,
+          l: 40,
+        },
+        tree: {
+          h: 83,
+          s: 12,
+          l: 38,
+        },
+        rock: {
+          h: 43,
+          s: 10,
+          l: 44,
+        },
+        mine: {
+          h: 32,
+          s: 12,
+          l: 40,
+        },
+      },
+      opened: {
+        grass: {
+          h: 65,
+          s: 23,
+          l: 60,
+        },
+        tree: {
+          h: 78,
+          s: 20,
+          l: 54,
+        },
+        rock: {
+          h: 43,
+          s: 18,
+          l: 68,
+        },
+        mine: {
+          h: 35,
+          s: 24,
+          l: 61,
+        },
+      },
     },
-    "tree": {
-      "h": 83,
-      "s": 12,
-      "l": 38
-    },
-    "rock": {
-      "h": 43,
-      "s": 10,
-      "l": 44
-    },
-    "mine": {
-      "h": 32,
-      "s": 12,
-      "l": 40
-    }
-  },
-  "opened": {
-    "grass": {
-      "h": 65,
-      "s": 23,
-      "l": 60
-    },
-    "tree": {
-      "h": 78,
-      "s": 20,
-      "l": 54
-    },
-    "rock": {
-      "h": 43,
-      "s": 18,
-      "l": 68
-    },
-    "mine": {
-      "h": 35,
-      "s": 24,
-      "l": 61
-    }
-  }
-},
     objects: {
       tree: {
         trunkColor: '#635039',
@@ -221,7 +221,7 @@
         bodyColor: '#b9b49a',
         shadeColor: '#969984',
         detailColor: '#626957',
-        accentColor: '#d2c9ab',
+        accentColor: '#b58b49',
         shapes: [
           [
             { x: -13, y: -5 },
@@ -306,7 +306,7 @@
         bodyColor: '#c3bfa1',
         shadeColor: '#8d997a',
         detailColor: '#5d7055',
-        accentColor: '#3e6748',
+        accentColor: '#587f67',
         shapes: [
           [
             { x: -7, y: -3 },
@@ -399,7 +399,7 @@
         bodyColor: '#838164',
         shadeColor: '#5b775b',
         detailColor: '#485b46',
-        accentColor: '#b5aa85',
+        accentColor: '#ae6750',
         shapes: [
           [
             { x: -7, y: 0 },
@@ -489,7 +489,7 @@
         bodyColor: '#8d9678',
         shadeColor: '#66755a',
         detailColor: '#435840',
-        accentColor: '#bdb598',
+        accentColor: '#c39448',
         shapes: [
           [
             { x: -6, y: -17 },
@@ -582,7 +582,7 @@
         bodyColor: '#6d895e',
         shadeColor: '#53714f',
         detailColor: '#7f7350',
-        accentColor: '#a44830',
+        accentColor: '#bd6248',
         shapes: [
           [
             { x: -1.5, y: 0 },
@@ -722,7 +722,7 @@
         bodyColor: '#827b5a',
         shadeColor: '#303f2d',
         detailColor: '#435f45',
-        accentColor: '#79935f',
+        accentColor: '#719890',
         shapes: [
           [
             { x: -2, y: 0 },
@@ -872,25 +872,54 @@
         rabbitColor: '#e0d6bb',
         lizardColor: '#697348',
         lizardShape: [
-          { x: -18, y: 1 }, { x: -8, y: -2 }, { x: -3, y: -3 },
-          { x: -5, y: -7 }, { x: -2, y: -6 }, { x: 0, y: -3 },
-          { x: 5, y: -3 }, { x: 8, y: -1 }, { x: 5, y: 2 },
-          { x: 1, y: 2 }, { x: 3, y: 6 }, { x: 0, y: 5 },
-          { x: -2, y: 2 }, { x: -7, y: 2 }, { x: -10, y: 5 },
-          { x: -12, y: 4 }, { x: -9, y: 1 },
+          { x: -18, y: 1 },
+          { x: -8, y: -2 },
+          { x: -3, y: -3 },
+          { x: -5, y: -7 },
+          { x: -2, y: -6 },
+          { x: 0, y: -3 },
+          { x: 5, y: -3 },
+          { x: 8, y: -1 },
+          { x: 5, y: 2 },
+          { x: 1, y: 2 },
+          { x: 3, y: 6 },
+          { x: 0, y: 5 },
+          { x: -2, y: 2 },
+          { x: -7, y: 2 },
+          { x: -10, y: 5 },
+          { x: -12, y: 4 },
+          { x: -9, y: 1 },
         ],
         stoneShape: [
-          { x: -5, y: -2 }, { x: -2, y: -5 }, { x: 3, y: -4 },
-          { x: 5, y: 0 }, { x: 2, y: 4 }, { x: -3, y: 3 },
+          { x: -5, y: -2 },
+          { x: -2, y: -5 },
+          { x: 3, y: -4 },
+          { x: 5, y: 0 },
+          { x: 2, y: 4 },
+          { x: -3, y: 3 },
         ],
         rabbitShape: [
-          { x: -13, y: -4 }, { x: -16, y: -8 }, { x: -11, y: -9 },
-          { x: -8, y: -13 }, { x: 0, y: -14 }, { x: 5, y: -12 },
-          { x: 6, y: -23 }, { x: 9, y: -24 }, { x: 9, y: -14 },
-          { x: 12, y: -22 }, { x: 15, y: -21 }, { x: 12, y: -12 },
-          { x: 16, y: -10 }, { x: 15, y: -6 }, { x: 8, y: -5 },
-          { x: 12, y: 0 }, { x: 7, y: 0 }, { x: 2, y: -4 },
-          { x: -4, y: -2 }, { x: -11, y: 0 }, { x: -14, y: -1 },
+          { x: -13, y: -4 },
+          { x: -16, y: -8 },
+          { x: -11, y: -9 },
+          { x: -8, y: -13 },
+          { x: 0, y: -14 },
+          { x: 5, y: -12 },
+          { x: 6, y: -23 },
+          { x: 9, y: -24 },
+          { x: 9, y: -14 },
+          { x: 12, y: -22 },
+          { x: 15, y: -21 },
+          { x: 12, y: -12 },
+          { x: 16, y: -10 },
+          { x: 15, y: -6 },
+          { x: 8, y: -5 },
+          { x: 12, y: 0 },
+          { x: 7, y: 0 },
+          { x: 2, y: -4 },
+          { x: -4, y: -2 },
+          { x: -11, y: 0 },
+          { x: -14, y: -1 },
         ],
         shadowShape: [
           { x: -1, y: 0 },
@@ -956,10 +985,10 @@
   const uiColor = (key, value) => (key === 'backdropColor' ? color(value) : opaque(value));
   Object.assign(builtin.objects, {
     seated_statue: {
-      bodyColor: '#b9b49a',
+      bodyColor: '#c2b18b',
       shadeColor: '#969984',
       detailColor: '#626957',
-      accentColor: '#d2c9ab',
+      accentColor: '#b99257',
       shapes: [
         [
           { x: -17, y: 2 },
@@ -1014,10 +1043,10 @@
       ],
     },
     long_statue: {
-      bodyColor: '#b9b49a',
+      bodyColor: '#9eafa0',
       shadeColor: '#969984',
       detailColor: '#626957',
-      accentColor: '#d2c9ab',
+      accentColor: '#77988b',
       shapes: [
         [
           { x: -14, y: 2 },
@@ -1075,7 +1104,7 @@
       bodyColor: '#b9b49a',
       shadeColor: '#969984',
       detailColor: '#626957',
-      accentColor: '#d2c9ab',
+      accentColor: '#a86e59',
       shapes: [
         [
           { x: -24, y: 2 },
@@ -1311,11 +1340,11 @@
   }
   const baseUrl = () =>
     typeof document !== 'undefined' && document.baseURI ? document.baseURI : 'http://localhost/';
-  async function read(url, json) {
+  async function readLook(url) {
     if (typeof globalThis.fetch !== 'function') throw Error('Fetch unavailable');
     const response = await globalThis.fetch(url, { cache: 'no-cache' });
     if (!response.ok) throw Error('Appearance file unavailable');
-    return json ? response.json() : response.text();
+    return response.json();
   }
   function resolveAssets(patch) {
     if (patch?.assets)
@@ -1345,19 +1374,13 @@
       picture.src = descriptor.url;
     });
   }
-  async function loadAssets(skin, standard) {
+  async function loadAssets(skin) {
     await Promise.all(
       Object.entries(skin.assets).map(async ([id, descriptor]) => {
         try {
           descriptor.image = await imageFor(descriptor);
         } catch {
-          const fallback = standard.assets[id];
-          if (fallback && fallback.url !== descriptor.url) {
-            try {
-              skin.assets[id] = { ...fallback, image: await imageFor(fallback) };
-              return;
-            } catch {}
-          }
+          // Missing images use the built-in drawing for the single look.
           delete skin.assets[id];
         }
       }),
@@ -1373,13 +1396,10 @@
   async function load() {
     let patch = null;
     try {
-      patch = resolveAssets(
-        validate(await read(new URL('config/look.json', baseUrl()).href, true)),
-      );
+      patch = resolveAssets(validate(await readLook(new URL('config/look.json', baseUrl()).href)));
     } catch {}
-    const standard = merge(builtin, patch);
-    const skin = standard;
-    await loadAssets(skin, standard);
+    const skin = merge(builtin, patch);
+    await loadAssets(skin);
     api.current = skin;
     applyUi(skin);
     return skin;

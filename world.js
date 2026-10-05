@@ -27,7 +27,11 @@
     extent: 30,
     monumentCount: 3,
     towerRadius: 5,
-    costs: { grass: 12, tree: 18, rock: 24, mine: 30 },
+    // Provisional: keep distant, denser terrain from requiring long repeated tapping.
+    costs: { grass: 4, tree: 6, rock: 8, mine: 10 },
+    roadCostAdjustment: -1,
+    roadTargetFraction: 0.075,
+    roadLocalApproachLength: 12,
     monumentMinDistance: 16,
     monumentMaxDistance: 24,
     monumentSpacing: 12,
@@ -101,8 +105,8 @@
       RULES.extent - 2 + 1.2 * Math.sin(angle * 3 + phase) + 0.7 * Math.cos(angle * 5 - phase);
     return Math.abs(x) <= RULES.extent && Math.abs(y) <= RULES.extent && Math.hypot(x, y) <= radius;
   }
-  function requiredCost(kind) {
-    return RULES.costs[kind];
+  function requiredCost(kind, road = false) {
+    return Math.max(1, RULES.costs[kind] + (road ? RULES.roadCostAdjustment : 0));
   }
   function generateTile(seed, x, y) {
     if (!isSeed(seed) || !isCoordinate(x) || !isCoordinate(y))
@@ -118,7 +122,7 @@
           : value < band.grass + band.tree + band.rock
             ? 'rock'
             : 'mine';
-    const cost = requiredCost(kind, x, y, false);
+    const cost = requiredCost(kind);
     return {
       x,
       y,
@@ -173,7 +177,7 @@
   }
   function placeMonument(w) {
     const m = index(w);
-    // Distinct seeded choices and nearest-next guidance are provisional selection rules.
+    // Adopted seeded choices and nearest-next guidance.
     const types = Object.keys(MONUMENTS)
       .map((type, n) => ({ type, n }))
       .sort(
@@ -302,8 +306,8 @@
         tile.visibility = 'preview';
     tower.effectApplied = true;
   }
-  // Provisional: one long path within the largest existing plain component.
-  // Roads never replace terrain, occupy objects, or alter opening costs.
+  // Connect landmark approaches using existing plains only. Isolated targets
+  // receive a local approach; density is a guide, never a terrain conversion.
   function placeRoad(w) {
     const m = index(w);
     const blocked = new Set([
@@ -311,34 +315,74 @@
       ...w.scenery.map((p) => key(p.x, p.y)),
     ]);
     const allowed = (t) => t.kind === 'grass' && !t.landmark && !blocked.has(key(t.x, t.y));
-    const seen = new Set();
-    let largest = [];
+    const components = [], componentByKey = new Map();
     for (const t of w.tiles) {
-      if (!allowed(t) || seen.has(key(t.x, t.y))) continue;
+      if (!allowed(t) || componentByKey.has(key(t.x, t.y))) continue;
       const component = [t];
-      seen.add(key(t.x, t.y));
-      for (let i = 0; i < component.length; i++)
-        for (const n of neighbors(component[i], m))
-          if (allowed(n) && !seen.has(key(n.x, n.y))) {
-            seen.add(key(n.x, n.y));
+      componentByKey.set(key(t.x, t.y), component);
+      for (let i = 0; i < component.length; i++) {
+        for (const n of neighbors(component[i], m)) {
+          const k = key(n.x, n.y);
+          if (allowed(n) && !componentByKey.has(k)) {
+            componentByKey.set(k, component);
             component.push(n);
           }
-      if (component.length > largest.length) largest = component;
+        }
+      }
+      components.push(component);
     }
-    if (!largest.length) return;
+    if (!components.length) return;
+    const primary = componentByKey.get('0,0') || components.reduce((a, b) => a.length >= b.length ? a : b);
     const walk = (start) => {
       const queue = [start], previous = new Map([[key(start.x, start.y), null]]);
-      for (let i = 0; i < queue.length; i++)
-        for (const n of neighbors(queue[i], m))
-          if (allowed(n) && !previous.has(key(n.x, n.y))) {
-            previous.set(key(n.x, n.y), queue[i]);
+      for (let i = 0; i < queue.length; i++) {
+        for (const n of neighbors(queue[i], m)) {
+          const k = key(n.x, n.y);
+          if (allowed(n) && !previous.has(k)) {
+            previous.set(k, queue[i]);
             queue.push(n);
           }
-      return { end: queue.at(-1), previous };
+        }
+      }
+      return { queue, previous };
     };
-    const start = largest.find((t) => t.x === 0 && t.y === 0) || largest[0];
-    const { end, previous } = walk(walk(start).end);
-    for (let t = end; t; t = previous.get(key(t.x, t.y))) t.road = true;
+    const root = primary.find((t) => t.x === 0 && t.y === 0) || primary[0];
+    const network = walk(root), order = new Map(network.queue.map((t, i) => [key(t.x, t.y), i]));
+    const roadKeys = new Set();
+    const mark = (t) => {
+      roadKeys.add(key(t.x, t.y));
+      t.road = true;
+      t.requiredCost = requiredCost(t.kind, true);
+      if (t.visibility === 'opened') t.developmentProgress = t.requiredCost;
+    };
+    const path = (end, previous) => {
+      const result = [];
+      for (let t = end; t; t = previous.get(key(t.x, t.y))) result.push(t);
+      return result;
+    };
+    for (const monument of w.monuments) {
+      const approaches = [...new Set(monument.occupied.flatMap((p) => neighbors(p, m)).filter(allowed))];
+      const connected = approaches.filter((t) => order.has(key(t.x, t.y)));
+      if (connected.length) {
+        connected.sort((a, b) => order.get(key(a.x, a.y)) - order.get(key(b.x, b.y)));
+        path(connected[0], network.previous).forEach(mark);
+      } else if (approaches.length) {
+        approaches.sort((a, b) => componentByKey.get(key(b.x, b.y)).length - componentByKey.get(key(a.x, a.y)).length);
+        const local = walk(approaches[0]);
+        // Keep the end at the landmark entrance while extending outward.
+        const approach = path(local.queue.at(-1), local.previous).reverse();
+        approach.slice(0, RULES.roadLocalApproachLength).forEach(mark);
+      }
+    }
+    const desired = Math.round(w.tiles.length * RULES.roadTargetFraction);
+    // Extend a few long branches rather than paving a dense area near the start.
+    for (let i = network.queue.length - 1; i >= 0 && roadKeys.size < desired; i--) {
+      const branch = path(network.queue[i], network.previous).reverse().filter((t) => !t.road);
+      for (const t of branch) {
+        if (roadKeys.size >= desired) break;
+        mark(t);
+      }
+    }
   }
   function completeTile(w, t, m) {
     if (t.visibility === 'opened') return;
@@ -695,8 +739,10 @@
       counts.set(o.type, counts.get(o.type) + 1);
     }
     if ([...counts].some(([type, n]) => n !== RULES.sceneryCounts[type])) fail();
-    if (w.tiles.some((t) => t.road &&
-      (occupied.has(key(t.x, t.y)) || scenerySeen.has(key(t.x, t.y))))) fail();
+    if (
+      w.tiles.some((t) => t.road && (occupied.has(key(t.x, t.y)) || scenerySeen.has(key(t.x, t.y))))
+    )
+      fail();
     if (
       !w.memo ||
       !['waiting', 'placed', 'collected'].includes(w.memo.status) ||
@@ -719,48 +765,90 @@
   // These references are never labels in the game.
   const memoAsides = Object.freeze({
     // Each landmark has one original text for each of the six production references.
-    'doll_keeper-vonnegut-2': '赤い服の子は人形を抱いている。\n人類はもっと大きなものを抱えて滅びた。人形には関係のない話だ。',
-    'doll_keeper-bukowski-2': '赤い服のあいつは、人形ひとつで両手がふさがっている。\nおれも安酒の瓶を抱いて寝た。朝には腕だけが痛かった。',
-    'doll_keeper-brautigan-2': '赤い服の子の腕に、小さな人形がある。\n午後は人形の大きさにたたまれて、袖から二センチはみ出している。',
-    'doll_keeper-nakagami-2': '人形を抱く赤い服の子を、母も見たと言い、母の母も見たと言い、\n抱かれた小さなものだけがこの土地を出ずに、抱く腕の重さを覚えていた。',
-    'doll_keeper-borges-2': '架空の『抱擁図譜』初版は、赤衣の子を人形の所有者とする。\n第二版では主客が逆転している。挿絵には変更がない。',
-    'doll_keeper-abe-2': '赤い服の子と人形の寸法は、大小の区別に適合している。\nただし抱かれる側の申請書には、子を携帯していると記載されていた。',
-    'ball_chasers-vonnegut-2': '三人が球を追っている。球は頭の上にある。\n惑星も似たようなものだ。こちらには柵がついている。',
-    'ball_chasers-bukowski-2': '縞服の三人は、頭の上の球にまで用事があるらしい。\n白い柵の外から見ていたら疲れた。おれは何も追っていないのに。',
-    'ball_chasers-brautigan-2': '縞服が三着、球がひとつ。\n白い柵は、洗濯物になりそこねた午後を囲っている。',
-    'ball_chasers-nakagami-2': '球を追う三人の縞を目で追うと、父が走った土地を兄も走り、\n走らなかった者の足音まで白い柵の内に残って、球だけが誰のものにもならなかった。',
-    'ball_chasers-borges-2': '架空の『球技異説』は三人を、同一人物の三つの時刻と記す。\n白い柵の内側には球がひとつあり、時刻を示すものはない。',
-    'ball_chasers-abe-2': '球一個に対し、追跡者は三名と定められている。\n白い柵で囲われているのは追跡者のほうなので、球の脱走について責任者はいない。',
-    'couple_under_trees-vonnegut-2': '果樹の下にふたりいる。片方は緑、片方は黒だ。\n太陽には区別がつかない。影はふたりぶんある。',
-    'couple_under_trees-bukowski-2': '緑の服と黒い服が、果樹の下に並んでいる。\n隣にいるだけで済むなら、おれのろくでもない結婚ももう少し続いた。',
-    'couple_under_trees-brautigan-2': '果樹の下の緑の服と黒い服。\nふたりの間には、まだ切っていない梨の匂いほどの距離がある。',
-    'couple_under_trees-nakagami-2': '果樹の下に並ぶふたりの、緑の袖と黒い袖の間に、\nこの土地で添い、この土地で別れた者らの名が、呼ばれもせず呼ばれもせず溜まっていた。',
-    'couple_under_trees-borges-2': '架空の『庭園婚姻録』は、果樹の下のふたりを夫婦と記す。\n巻末の訂正表は、ふたりが同じ世紀に属することだけを否定している。',
-    'couple_under_trees-abe-2': '果樹の下のふたりは、同じ日陰の使用者として登録されている。\n緑の服と黒い服の所有者欄は別々だが、日陰の側には人間二名を所有するとある。',
-    'child_on_rock-vonnegut-2': '岩に子が座っている。脚には縞がある。\n岩は子よりずっと年上だ。席は譲らなくてよい。',
-    'child_on_rock-bukowski-2': '岩の上の子は縞の脚を垂らしている。\nあんな寝床じゃ尻が痛む。家賃を取られないだけ、まだましだ。',
-    'child_on_rock-brautigan-2': '岩に座る子の脚に、細い縞がある。\n午後を数える定規としては、両足で少し長すぎる。',
-    'child_on_rock-nakagami-2': '岩に座る子の脚が縞になって、その縞を見ていると、\n山から下りた者も下りなかった者も同じ岩に腰を置いた、その冷たさが膝の裏に戻ってくる。',
-    'child_on_rock-borges-2': '架空の『着座者列伝』には、岩上の子の記載がある。\n生年の欄は空白で、岩の年代だけが三度訂正されている。',
-    'child_on_rock-abe-2': '岩は座席として使用されているが、座席としての届出はない。\nそのため岩上の子は利用者ではなく、岩の突起として分類される。縞の脚も含む。',
-    'guard_in_wooden_frame-vonnegut-2': '木枠の中に制服の番人がいる。\n枠の外には宇宙がある。勤務範囲は狭いほうがいい。',
-    'guard_in_wooden_frame-bukowski-2': '制服のあいつは、蔓のからむ木枠に立っている。\n番をする仕事もしたが、最後まで守れたのは空っぽの椅子だけだった。',
-    'guard_in_wooden_frame-brautigan-2': '木枠に制服の番人が収まっている。\n蔓は額縁の寸法を知らない、緑色の巻尺だ。',
-    'guard_in_wooden_frame-nakagami-2': '木枠の番人の制服に、ここを通された者と通されなかった者の目が重なり、\n枠にからむ蔓を切った父の手も、またからむ蔓も、土地の内と外を分けきれずにいた。',
-    'guard_in_wooden_frame-borges-2': '架空の『境界職員録』では、木枠の番人の任地は「枠内」とある。\n付図は枠の外を余白とし、その余白にも同じ職員番号を振っている。',
-    'guard_in_wooden_frame-abe-2': '木枠内の制服は、番人の在席を示すものとされる。\n枠を境界として内外を区分した結果、外側に立つ者は全員、収容済みとなった。',
-    'piper_and_birds-vonnegut-2': '笛吹きのそばに黒い鳥と白い鳥がいる。\n音は見えない。鳥は見える。それだけで記録はずいぶん楽になった。',
-    'piper_and_birds-bukowski-2': '道化の笛吹きには、黒い鳥と白い鳥がついている。\nおれが酔って歌った夜は、隣の部屋から靴が飛んできた。客にも種類がある。',
-    'piper_and_birds-brautigan-2': '道化の笛のそばに、黒い鳥と白い鳥。\n楽譜からこぼれた塩と胡椒が、羽をつけたらこんなふうだろう。',
-    'piper_and_birds-nakagami-2': '木陰の笛吹きのそばに黒い鳥も白い鳥もいて、\n昔ここで聞いたという笛を誰も歌い直せず、歌い直せぬまま、土地はその息の長さだけを覚えていた。',
-    'piper_and_birds-borges-2': '架空の『無音楽譜集』は、笛吹きの黒白の鳥を音符として収録する。\n演奏時間は記されていない。校訂者は鳥の向きだけを訂正した。',
-    'piper_and_birds-abe-2': '道化の笛と黒白の鳥は、別の備品として数えられている。\n音の所在を調べる欄では、笛が鳥の付属品となっていた。吹く者の用途は未記入である。',
-    'elder_with_black_dog-vonnegut-2': '白髪の老人には杖がある。大きな黒犬にはない。\nどちらも地面に支えられている。地面は請求書を出さない。',
-    'elder_with_black_dog-bukowski-2': '白髪の老人は杖を持ち、大きな黒犬を連れている。\n年を取ると、ろくでもない話を黙って聞く相手のほうが場所を取る。',
-    'elder_with_black_dog-brautigan-2': '老人の杖の横に、大きな黒犬がいる。\n白髪から抜け落ちた夜が、犬一頭ぶんの形になっている。',
-    'elder_with_black_dog-nakagami-2': '白髪の老人の杖と黒犬の足の下に、昔から踏まれてきた土があり、\n老人を知る者がいなくなっても犬を知る者がいなくなっても、土は重さを分けずに受けていた。',
-    'elder_with_black_dog-borges-2': '架空の『同行者名簿』には、白髪の老人と黒犬が載っている。\n索引は杖から老人へ、老人から犬へ導く。犬の項から戻る参照はない。',
-    'elder_with_black_dog-abe-2': '杖を持つ老人と黒犬の同行関係は、登録されている。\n扶養者の欄には犬、被扶養者の欄には杖とある。老人の所属は、その二者の間になっている。',
+    'doll_keeper-vonnegut-2':
+      '赤い服の子は人形を抱いている。\n人類はもっと大きなものを抱えて滅びた。人形には関係のない話だ。',
+    'doll_keeper-bukowski-2':
+      '赤い服のあいつは、人形ひとつで両手がふさがっている。\nおれも安酒の瓶を抱いて寝た。朝には腕だけが痛かった。',
+    'doll_keeper-brautigan-2':
+      '赤い服の子の腕に、小さな人形がある。\n午後は人形の大きさにたたまれて、袖から二センチはみ出している。',
+    'doll_keeper-nakagami-2':
+      '人形を抱く赤い服の子を、母も見たと言い、母の母も見たと言い、\n抱かれた小さなものだけがこの土地を出ずに、抱く腕の重さを覚えていた。',
+    'doll_keeper-borges-2':
+      '架空の『抱擁図譜』初版は、赤衣の子を人形の所有者とする。\n第二版では主客が逆転している。挿絵には変更がない。',
+    'doll_keeper-abe-2':
+      '赤い服の子と人形の寸法は、大小の区別に適合している。\nただし抱かれる側の申請書には、子を携帯していると記載されていた。',
+    'ball_chasers-vonnegut-2':
+      '三人が球を追っている。球は頭の上にある。\n惑星も似たようなものだ。こちらには柵がついている。',
+    'ball_chasers-bukowski-2':
+      '縞服の三人は、頭の上の球にまで用事があるらしい。\n白い柵の外から見ていたら疲れた。おれは何も追っていないのに。',
+    'ball_chasers-brautigan-2':
+      '縞服が三着、球がひとつ。\n白い柵は、洗濯物になりそこねた午後を囲っている。',
+    'ball_chasers-nakagami-2':
+      '球を追う三人の縞を目で追うと、父が走った土地を兄も走り、\n走らなかった者の足音まで白い柵の内に残って、球だけが誰のものにもならなかった。',
+    'ball_chasers-borges-2':
+      '架空の『球技異説』は三人を、同一人物の三つの時刻と記す。\n白い柵の内側には球がひとつあり、時刻を示すものはない。',
+    'ball_chasers-abe-2':
+      '球一個に対し、追跡者は三名と定められている。\n白い柵で囲われているのは追跡者のほうなので、球の脱走について責任者はいない。',
+    'couple_under_trees-vonnegut-2':
+      '果樹の下にふたりいる。片方は緑、片方は黒だ。\n太陽には区別がつかない。影はふたりぶんある。',
+    'couple_under_trees-bukowski-2':
+      '緑の服と黒い服が、果樹の下に並んでいる。\n隣にいるだけで済むなら、おれのろくでもない結婚ももう少し続いた。',
+    'couple_under_trees-brautigan-2':
+      '果樹の下の緑の服と黒い服。\nふたりの間には、まだ切っていない梨の匂いほどの距離がある。',
+    'couple_under_trees-nakagami-2':
+      '果樹の下に並ぶふたりの、緑の袖と黒い袖の間に、\nこの土地で添い、この土地で別れた者らの名が、呼ばれもせず呼ばれもせず溜まっていた。',
+    'couple_under_trees-borges-2':
+      '架空の『庭園婚姻録』は、果樹の下のふたりを夫婦と記す。\n巻末の訂正表は、ふたりが同じ世紀に属することだけを否定している。',
+    'couple_under_trees-abe-2':
+      '果樹の下のふたりは、同じ日陰の使用者として登録されている。\n緑の服と黒い服の所有者欄は別々だが、日陰の側には人間二名を所有するとある。',
+    'child_on_rock-vonnegut-2':
+      '岩に子が座っている。脚には縞がある。\n岩は子よりずっと年上だ。席は譲らなくてよい。',
+    'child_on_rock-bukowski-2':
+      '岩の上の子は縞の脚を垂らしている。\nあんな寝床じゃ尻が痛む。家賃を取られないだけ、まだましだ。',
+    'child_on_rock-brautigan-2':
+      '岩に座る子の脚に、細い縞がある。\n午後を数える定規としては、両足で少し長すぎる。',
+    'child_on_rock-nakagami-2':
+      '岩に座る子の脚が縞になって、その縞を見ていると、\n山から下りた者も下りなかった者も同じ岩に腰を置いた、その冷たさが膝の裏に戻ってくる。',
+    'child_on_rock-borges-2':
+      '架空の『着座者列伝』には、岩上の子の記載がある。\n生年の欄は空白で、岩の年代だけが三度訂正されている。',
+    'child_on_rock-abe-2':
+      '岩は座席として使用されているが、座席としての届出はない。\nそのため岩上の子は利用者ではなく、岩の突起として分類される。縞の脚も含む。',
+    'guard_in_wooden_frame-vonnegut-2':
+      '木枠の中に制服の番人がいる。\n枠の外には宇宙がある。勤務範囲は狭いほうがいい。',
+    'guard_in_wooden_frame-bukowski-2':
+      '制服のあいつは、蔓のからむ木枠に立っている。\n番をする仕事もしたが、最後まで守れたのは空っぽの椅子だけだった。',
+    'guard_in_wooden_frame-brautigan-2':
+      '木枠に制服の番人が収まっている。\n蔓は額縁の寸法を知らない、緑色の巻尺だ。',
+    'guard_in_wooden_frame-nakagami-2':
+      '木枠の番人の制服に、ここを通された者と通されなかった者の目が重なり、\n枠にからむ蔓を切った父の手も、またからむ蔓も、土地の内と外を分けきれずにいた。',
+    'guard_in_wooden_frame-borges-2':
+      '架空の『境界職員録』では、木枠の番人の任地は「枠内」とある。\n付図は枠の外を余白とし、その余白にも同じ職員番号を振っている。',
+    'guard_in_wooden_frame-abe-2':
+      '木枠内の制服は、番人の在席を示すものとされる。\n枠を境界として内外を区分した結果、外側に立つ者は全員、収容済みとなった。',
+    'piper_and_birds-vonnegut-2':
+      '笛吹きのそばに黒い鳥と白い鳥がいる。\n音は見えない。鳥は見える。それだけで記録はずいぶん楽になった。',
+    'piper_and_birds-bukowski-2':
+      '道化の笛吹きには、黒い鳥と白い鳥がついている。\nおれが酔って歌った夜は、隣の部屋から靴が飛んできた。客にも種類がある。',
+    'piper_and_birds-brautigan-2':
+      '道化の笛のそばに、黒い鳥と白い鳥。\n楽譜からこぼれた塩と胡椒が、羽をつけたらこんなふうだろう。',
+    'piper_and_birds-nakagami-2':
+      '木陰の笛吹きのそばに黒い鳥も白い鳥もいて、\n昔ここで聞いたという笛を誰も歌い直せず、歌い直せぬまま、土地はその息の長さだけを覚えていた。',
+    'piper_and_birds-borges-2':
+      '架空の『無音楽譜集』は、笛吹きの黒白の鳥を音符として収録する。\n演奏時間は記されていない。校訂者は鳥の向きだけを訂正した。',
+    'piper_and_birds-abe-2':
+      '道化の笛と黒白の鳥は、別の備品として数えられている。\n音の所在を調べる欄では、笛が鳥の付属品となっていた。吹く者の用途は未記入である。',
+    'elder_with_black_dog-vonnegut-2':
+      '白髪の老人には杖がある。大きな黒犬にはない。\nどちらも地面に支えられている。地面は請求書を出さない。',
+    'elder_with_black_dog-bukowski-2':
+      '白髪の老人は杖を持ち、大きな黒犬を連れている。\n年を取ると、ろくでもない話を黙って聞く相手のほうが場所を取る。',
+    'elder_with_black_dog-brautigan-2':
+      '老人の杖の横に、大きな黒犬がいる。\n白髪から抜け落ちた夜が、犬一頭ぶんの形になっている。',
+    'elder_with_black_dog-nakagami-2':
+      '白髪の老人の杖と黒犬の足の下に、昔から踏まれてきた土があり、\n老人を知る者がいなくなっても犬を知る者がいなくなっても、土は重さを分けずに受けていた。',
+    'elder_with_black_dog-borges-2':
+      '架空の『同行者名簿』には、白髪の老人と黒犬が載っている。\n索引は杖から老人へ、老人から犬へ導く。犬の項から戻る参照はない。',
+    'elder_with_black_dog-abe-2':
+      '杖を持つ老人と黒犬の同行関係は、登録されている。\n扶養者の欄には犬、被扶養者の欄には杖とある。老人の所属は、その二者の間になっている。',
     'planet-1': '星がひとつ消えた。\nここでは石がひとつ倒れた。\nどちらも、昨日のことだ。',
     'room-1': '寝床にはまだ昼の熱が残っていた。\nくそったれ、外の石のほうがよく眠っている。',
     'afternoon-1': '午後を三つに折った。\n折り目には、緑の鱒が一匹いた。',

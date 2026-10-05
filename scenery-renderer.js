@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  // Color slots pair with the validated polygons in each skin package.
+  // Color slots pair with the validated polygons in the single look.
   // These ornaments are deliberately flat and frontal; their saved orientation
   // does not turn them into moving characters or alter their ground coordinate.
   const colors = Object.freeze({
