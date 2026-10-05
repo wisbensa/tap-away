@@ -41,62 +41,62 @@
     id: 'default',
     label: '標準',
     palette: {
-      hidden: {
-        h: 55,
-        s: 12,
-        l: 29,
-      },
-      preview: {
-        grass: {
-          h: 67,
-          s: 12,
-          l: 40,
-        },
-        tree: {
-          h: 83,
-          s: 12,
-          l: 38,
-        },
-        rock: {
-          h: 43,
-          s: 10,
-          l: 44,
-        },
-        mine: {
-          h: 32,
-          s: 12,
-          l: 40,
-        },
-      },
-      opened: {
-        grass: {
-          h: 65,
-          s: 23,
-          l: 60,
-        },
-        tree: {
-          h: 78,
-          s: 20,
-          l: 54,
-        },
-        rock: {
-          h: 43,
-          s: 18,
-          l: 68,
-        },
-        mine: {
-          h: 35,
-          s: 24,
-          l: 61,
-        },
-      },
+  "hidden": {
+    "h": 55,
+    "s": 12,
+    "l": 29
+  },
+  "preview": {
+    "grass": {
+      "h": 88,
+      "s": 23,
+      "l": 40
     },
+    "tree": {
+      "h": 112,
+      "s": 21,
+      "l": 38
+    },
+    "rock": {
+      "h": 18,
+      "s": 26,
+      "l": 44
+    },
+    "mine": {
+      "h": 39,
+      "s": 29,
+      "l": 40
+    }
+  },
+  "opened": {
+    "grass": {
+      "h": 88,
+      "s": 58,
+      "l": 60
+    },
+    "tree": {
+      "h": 112,
+      "s": 52,
+      "l": 54
+    },
+    "rock": {
+      "h": 18,
+      "s": 64,
+      "l": 68
+    },
+    "mine": {
+      "h": 39,
+      "s": 72,
+      "l": 61
+    }
+  }
+},
     objects: {
       tree: {
-  "trunkColor": "#635039",
-  "leafColor": "#35482f",
-  "shadeColor": "#77804b",
-  "detailColor": "#b3aa6899",
+  "trunkColor": "#75332d",
+  "leafColor": "#ad2440",
+  "shadeColor": "#ee6340",
+  "detailColor": "#ffd05acc",
   "shapes": [
     [
       {
@@ -175,9 +175,9 @@
   ]
 },
       rock: {
-  "faceColor": "#c6b999",
-  "shadeColor": "#8c987c",
-  "lineColor": "#706d59",
+  "faceColor": "#ef8768",
+  "shadeColor": "#b64164",
+  "lineColor": "#723446",
   "shapes": [
     [
       {
@@ -226,9 +226,9 @@
   ]
 },
       mine: {
-  "shadeColor": "#887255",
-  "entranceColor": "#272923",
-  "timberColor": "#b29a6e",
+  "shadeColor": "#c85935",
+  "entranceColor": "#342136",
+  "timberColor": "#ecb447",
   "shapes": [
     [
       {
@@ -541,10 +541,10 @@
         ],
       },
       dressed_tree: {
-        bodyColor: '#838164',
-        shadeColor: '#5b775b',
-        detailColor: '#485b46',
-        accentColor: '#ae6750',
+        bodyColor: '#c24934',
+        shadeColor: '#328541',
+        detailColor: '#224c36',
+        accentColor: '#ed3045',
         shapes: [
           [
             { x: -7, y: 0 },
@@ -631,10 +631,10 @@
         ],
       },
       front_bird: {
-        bodyColor: '#8d9678',
-        shadeColor: '#66755a',
-        detailColor: '#435840',
-        accentColor: '#c39448',
+        bodyColor: '#e7ae35',
+        shadeColor: '#377e62',
+        detailColor: '#28443c',
+        accentColor: '#e6314b',
         shapes: [
           [
             { x: -6, y: -17 },
@@ -724,10 +724,10 @@
         ],
       },
       giant_flower: {
-        bodyColor: '#6d895e',
-        shadeColor: '#53714f',
-        detailColor: '#7f7350',
-        accentColor: '#bd6248',
+        bodyColor: '#379342',
+        shadeColor: '#176d43',
+        detailColor: '#edb632',
+        accentColor: '#ed3045',
         shapes: [
           [
             { x: -1.5, y: 0 },
@@ -864,10 +864,10 @@
         ],
       },
       symmetric_tree: {
-        bodyColor: '#827b5a',
+        bodyColor: '#b74a35',
         shadeColor: '#303f2d',
-        detailColor: '#435f45',
-        accentColor: '#719890',
+        detailColor: '#dfaa32',
+        accentColor: '#eb4158',
         shapes: [
           [
             { x: -2, y: 0 },
@@ -1097,7 +1097,7 @@
       hidden: '#eeeade16',
       edge: '#514c3026',
       eligible: '#b5b491',
-      detail: '#485333bb',
+      detail: '#227b38dd',
       outline: '48, 65, 40',
       blockedOutline: '168, 70, 58',
       openedOutline: '224, 244, 194',
